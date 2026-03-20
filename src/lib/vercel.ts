@@ -11,15 +11,23 @@ async function vercelFetch(
   teamId?: string
 ): Promise<Response> {
   const teamQuery = teamId ? `${path.includes('?') ? '&' : '?'}teamId=${teamId}` : '';
-  const res = await fetch(`https://api.vercel.com${path}${teamQuery}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string>),
-    },
-  });
-  return res;
+  try {
+    const res = await fetch(`https://api.vercel.com${path}${teamQuery}`, {
+      ...options,
+      signal: AbortSignal.timeout(30_000),
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...(options.headers as Record<string, string>),
+      },
+    });
+    return res;
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'TimeoutError') {
+      throw new Error('GitHub API 응답 없음 (30초 초과) - 네트워크 문제일 수 있습니다. 재시도해주세요.');
+    }
+    throw e;
+  }
 }
 
 export async function findProjectId(): Promise<string> {
@@ -72,8 +80,8 @@ export async function pollDeployment(
 ): Promise<string> {
   const { VERCEL_TOKEN, VERCEL_TEAM_ID } = validateEnv();
 
-  // 최대 20회 × 10초 = 200초 폴링
-  for (let i = 0; i < 20; i++) {
+  // 최대 12회 × 10초 = 120초 폴링
+  for (let i = 0; i < 12; i++) {
     await sleep(10_000);
 
     const res = await vercelFetch(
@@ -109,7 +117,7 @@ export async function pollDeployment(
     }
   }
 
-  throw new Error('Vercel 배포 타임아웃: 200초 내에 READY 상태 미확인');
+  throw new Error('Vercel 배포 타임아웃: 120초 내에 READY 상태 미확인');
 }
 
 export async function addDomain(

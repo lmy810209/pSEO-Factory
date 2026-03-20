@@ -12,16 +12,24 @@ async function githubFetch(
   options: RequestInit,
   token: string
 ): Promise<Response> {
-  const res = await fetch(`https://api.github.com${path}`, {
-    ...options,
-    headers: {
-      Authorization: `token ${token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string>),
-    },
-  });
-  return res;
+  try {
+    const res = await fetch(`https://api.github.com${path}`, {
+      ...options,
+      signal: AbortSignal.timeout(30_000),
+      headers: {
+        Authorization: `token ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        ...(options.headers as Record<string, string>),
+      },
+    });
+    return res;
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'TimeoutError') {
+      throw new Error('GitHub API 응답 없음 (30초 초과) - 네트워크 문제일 수 있습니다. 재시도해주세요.');
+    }
+    throw e;
+  }
 }
 
 export async function commitFiles(

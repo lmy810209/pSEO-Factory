@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -X POST http://localhost:9002/api/generate -H \"Content-Type: application/json\" -d '{\"\"topic\"\": \"\"어린이날 행사 장소\"\"}' -o /tmp/step1.json -w \"HTTP %{http_code} | Time: %{time_total}s\\\\n\")",
+      "Bash(node -e \"const d=require\\(''/tmp/step1.json''\\); console.log\\(''slug:'', d.slug || ''ERROR:''+d.error?.slice\\(0,100\\)\\); console.log\\(''pages:'', d.pages?.length || 0\\);\")",
+      "Bash(node -e \":*)",
+      "Bash(node -e \"const d=JSON.parse\\(require\\(''''fs''''\\).readFileSync\\(''''/tmp/step2.json'''',''''utf8''''\\)\\); console.log\\(d.files[''''public/sitemaps/childrens-day-event-venues.xml'''']\\);\")",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(curl -s -X POST http://localhost:9002/api/generate -H \"Content-Type: application/json\" -d '{\"\"topic\"\": \"\"전국 캠핑장 추천\"\"}' -o /tmp/camp_step1.json -w \"HTTP %{http_code} | %{time_total}s\\\\n\")"
+    ],
+    "additionalDirectories": [
+      "/home/user/studio/src/app/s/[slug]"
+    ]
+  }
+}

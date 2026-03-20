@@ -7,8 +7,8 @@ import { findProjectId, pollDeployment, addDomain } from '@/lib/vercel';
 import { submitToSearchEngines } from '@/lib/searchconsole';
 import { validateEnv } from '@/lib/env';
 
-// GitHub push + Vercel 폴링 + 전체 파이프라인 (최대 10분)
-export const maxDuration = 600;
+// Hobby 플랜 최대 60초 제한
+export const maxDuration = 60;
 
 function sendTelegram(message: string): void {
   const token = process.env.TELEGRAM_BOT_TOKEN;

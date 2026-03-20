@@ -53,6 +53,31 @@ body,p,li,span,a { font-family: var(--font-body); }
   );
 }
 
+function JsonLd({ page, siteUrl }: { page: PseoPage; siteUrl: string }) {
+  const schema = {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: page.title,
+    description: page.description,
+    url: siteUrl,
+    datePublished: new Date().toISOString().split('T')[0],
+    dateModified: new Date().toISOString().split('T')[0],
+    author: { '@type': 'Organization', name: 'pSEO Factory' },
+    publisher: {
+      '@type': 'Organization',
+      name: 'pSEO Factory',
+      logo: { '@type': 'ImageObject', url: `${siteUrl}/favicon.ico` },
+    },
+    keywords: page.keywords.join(', '),
+  };
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+    />
+  );
+}
+
 interface Props {
   params: Promise<{ slug: string }>;
 }
@@ -77,10 +102,15 @@ export default async function SubdomainPage({ params }: Props) {
 
   const { theme } = data;
   const indexPage = data.pages[0];
+  const baseDomain = process.env.BASE_DOMAIN ?? 'linoranex.com';
+  const siteUrl = `https://${slug}.${baseDomain}`;
+  const mapsKey = process.env.GOOGLE_MAPS_API_KEY;
+  const mapQuery = indexPage.content.mapQuery;
 
   return (
     <>
       <ThemeStyle theme={theme} />
+      <JsonLd page={indexPage} siteUrl={siteUrl} />
       <main className="min-h-screen bg-white text-gray-900">
         {/* Hero */}
         <section
@@ -136,6 +166,23 @@ export default async function SubdomainPage({ params }: Props) {
             ))}
           </div>
         </section>
+
+        {/* Google Static Map (추가 5) */}
+        {mapsKey && mapQuery && (
+          <section className="py-8 px-6 bg-gray-50">
+            <div className="max-w-4xl mx-auto">
+              <h2 className="text-xl font-bold mb-4" style={{ color: theme.primaryColor }}>
+                지도
+              </h2>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(mapQuery)}&zoom=13&size=800x400&maptype=roadmap&key=${mapsKey}`}
+                alt={`${mapQuery} 지도`}
+                className="w-full rounded-xl shadow"
+              />
+            </div>
+          </section>
+        )}
 
         {/* Other pages nav */}
         {data.pages.length > 1 && (
@@ -204,10 +251,24 @@ export default async function SubdomainPage({ params }: Props) {
         )}
 
         <footer
-          className="py-8 text-center text-sm border-t"
-          style={{ color: theme.primaryColor, borderColor: `${theme.primaryColor}30` }}
+          className="py-8 px-6 border-t"
+          style={{ borderColor: `${theme.primaryColor}30` }}
         >
-          <p>© {new Date().getFullYear()} {indexPage.title}. Powered by pSEO Factory.</p>
+          <div className="max-w-4xl mx-auto">
+            <p className="text-center text-sm mb-3" style={{ color: theme.primaryColor }}>
+              © {new Date().getFullYear()} {indexPage.title}. Powered by pSEO Factory.
+            </p>
+            <p className="text-center text-xs text-gray-400 mb-3">
+              본 콘텐츠는 정보 제공 목적으로만 제공됩니다. 2026년 3월 기준 작성 내용으로 실제 상황과 다를 수 있습니다.
+            </p>
+            <div className="flex justify-center gap-4 text-xs" style={{ color: theme.primaryColor }}>
+              <a href="/about" className="hover:underline">사이트 소개</a>
+              <span>·</span>
+              <a href="/privacy" className="hover:underline">개인정보 처리방침</a>
+              <span>·</span>
+              <a href="/contact" className="hover:underline">문의하기</a>
+            </div>
+          </div>
         </footer>
       </main>
     </>

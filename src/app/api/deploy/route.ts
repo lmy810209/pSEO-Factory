@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { commitFiles } from '@/lib/github';
-import { findProjectId, pollDeployment } from '@/lib/vercel';
+import { findProjectId } from '@/lib/vercel';
 
-// GitHub push + Vercel 폴링 대기 (최대 5분)
-export const maxDuration = 300;
+// GitHub 커밋만 처리 — Vercel 폴링은 클라이언트가 /api/poll-deploy로 직접 수행
+export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,11 +39,10 @@ export async function POST(req: NextRequest) {
       `pSEO: ${slug} 사이트 생성 [자동 커밋]`
     );
 
-    // [4] Vercel 프로젝트 찾기 + 배포 완료 대기
+    // projectId 미리 조회 (클라이언트 폴링에 사용)
     const projectId = await findProjectId();
-    const deployUrl = await pollDeployment(projectId, commitSha);
 
-    return NextResponse.json({ deployUrl, commitSha, projectId });
+    return NextResponse.json({ commitSha, projectId });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : '알 수 없는 오류';

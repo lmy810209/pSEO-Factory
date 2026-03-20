@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
+import path from 'path';
 import { generatePages } from '@/lib/claude';
 import { toSlug } from '@/lib/utils';
 
-export const maxDuration = 180;
+export const maxDuration = 60;
+
+function slugExists(slug: string): boolean {
+  try {
+    const filePath = path.join(process.cwd(), 'public', 'sites', `${slug}.json`);
+    return fs.existsSync(filePath);
+  } catch {
+    return false;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,10 +36,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await generatePages(topic, requirements || undefined);
-
-    // Claude가 반환한 slug를 정규화하되, 비어있으면 topic으로 생성
-    const slug = result.slug ? toSlug(result.slug) : toSlug(topic);
+    let result = await generatePages(topic, requirements || undefined);
+    let slug = result.slug ? toSlug(result.slug) : toSlug(topic);
 
     // slug 검증 — 빈 문자열이면 파이프라인 중단
     if (!slug) {
@@ -36,6 +45,20 @@ export async function POST(req: NextRequest) {
         { error: 'slug가 빈 문자열입니다.', step: 'generate' },
         { status: 500 }
       );
+    }
+
+    // 추가 8: 슬러그 중복 방지 — 기존 사이트와 다른 각도로 재생성
+    if (slugExists(slug)) {
+      const dedupeReq = `기존 "${slug}" 슬러그와 다른 각도로 작성. 제목과 슬러그에 다른 [지역/상황/타겟/기준] 조합 사용. 기존과 중복되지 않는 새로운 관점 필수.${requirements ? ' ' + requirements : ''}`;
+      result = await generatePages(topic, dedupeReq);
+      slug = result.slug ? toSlug(result.slug) : toSlug(topic + '-v2');
+
+      if (!slug) {
+        return NextResponse.json(
+          { error: 'slug가 빈 문자열입니다.', step: 'generate' },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json({ slug, pages: result.pages, theme: result.theme });

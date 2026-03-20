@@ -12,6 +12,31 @@ function validatePage(page: PseoPage, index: number): void {
   check('description', page.description);
   check('og:title (title)', page.title);
   check('og:description (description)', page.description);
+
+  // 섹션별 최소 300자 검증
+  for (let i = 0; i < page.content.sections.length; i++) {
+    const bodyLen = page.content.sections[i].body.length;
+    if (bodyLen < 300) {
+      const err = new Error(`콘텐츠 길이 부족 (pages[${index}].sections[${i}] 최소 300자 필요, 현재 ${bodyLen}자)`);
+      (err as Error & { minRequired: number; actual: number }).minRequired = 300;
+      (err as Error & { minRequired: number; actual: number }).actual = bodyLen;
+      throw err;
+    }
+  }
+
+  // 페이지 총 콘텐츠 최소 1500자 검증
+  const totalLen = [
+    page.content.hero,
+    ...page.content.sections.map((s) => s.body),
+    ...page.content.faq.map((f) => f.a),
+  ].join('').length;
+
+  if (totalLen < 1500) {
+    const err = new Error(`콘텐츠 길이 부족 (pages[${index}] 최소 1500자 필요, 현재 ${totalLen}자)`);
+    (err as Error & { minRequired: number; actual: number }).minRequired = 1500;
+    (err as Error & { minRequired: number; actual: number }).actual = totalLen;
+    throw err;
+  }
 }
 
 function generateSitemap(slug: string, pages: PseoPage[], baseDomain: string): string {

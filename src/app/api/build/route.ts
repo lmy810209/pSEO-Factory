@@ -44,6 +44,13 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : '알 수 없는 오류';
+    const errAny = error as Error & { minRequired?: number; actual?: number };
+    if (errAny.minRequired !== undefined) {
+      return NextResponse.json(
+        { error: message, minRequired: errAny.minRequired, actual: errAny.actual, step: 'build' },
+        { status: 422 }
+      );
+    }
     return NextResponse.json(
       { error: message, step: 'build' },
       { status: 500 }

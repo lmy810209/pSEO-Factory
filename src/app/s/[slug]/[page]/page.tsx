@@ -48,6 +48,37 @@ body,p,li,span,a { font-family: var(--font-body); }
   );
 }
 
+function JsonLd({
+  page,
+  pageUrl,
+}: {
+  page: PseoPage;
+  pageUrl: string;
+}) {
+  const schema = {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: page.title,
+    description: page.description,
+    url: pageUrl,
+    datePublished: new Date().toISOString().split('T')[0],
+    dateModified: new Date().toISOString().split('T')[0],
+    author: { '@type': 'Organization', name: 'pSEO Factory' },
+    publisher: {
+      '@type': 'Organization',
+      name: 'pSEO Factory',
+      logo: { '@type': 'ImageObject', url: `${pageUrl}/favicon.ico` },
+    },
+    keywords: page.keywords.join(', '),
+  };
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+    />
+  );
+}
+
 interface Props {
   params: Promise<{ slug: string; page: string }>;
 }
@@ -71,14 +102,25 @@ export default async function SubdomainSubPage({ params }: Props) {
   const data = getSiteData(slug);
   if (!data) notFound();
 
-  const page = data.pages.find((p) => p.slug === pageSlug);
-  if (!page) notFound();
+  const pageIndex = data.pages.findIndex((p) => p.slug === pageSlug);
+  if (pageIndex === -1) notFound();
+  const page = data.pages[pageIndex];
 
   const { theme } = data;
+  const baseDomain = process.env.BASE_DOMAIN ?? 'linoranex.com';
+  const siteUrl = `https://${slug}.${baseDomain}`;
+  const pageUrl = `${siteUrl}/${page.slug}`;
+  const mapsKey = process.env.GOOGLE_MAPS_API_KEY;
+
+  // 추가 6: 관련 글 — 현재 페이지 제외, 최대 5개
+  const relatedPages = data.pages
+    .filter((_, i) => i !== pageIndex)
+    .slice(0, 5);
 
   return (
     <>
       <ThemeStyle theme={theme} />
+      <JsonLd page={page} pageUrl={pageUrl} />
       <main className="min-h-screen bg-white text-gray-900">
         {/* Breadcrumb */}
         <nav className="bg-gray-50 border-b px-6 py-3">
@@ -143,6 +185,23 @@ export default async function SubdomainSubPage({ params }: Props) {
           </div>
         </section>
 
+        {/* Google Static Map (추가 5) */}
+        {mapsKey && page.content.mapQuery && (
+          <section className="py-8 px-6 bg-gray-50">
+            <div className="max-w-4xl mx-auto">
+              <h2 className="text-xl font-bold mb-4" style={{ color: theme.primaryColor }}>
+                지도
+              </h2>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(page.content.mapQuery)}&zoom=13&size=800x400&maptype=roadmap&key=${mapsKey}`}
+                alt={`${page.content.mapQuery} 지도`}
+                className="w-full rounded-xl shadow"
+              />
+            </div>
+          </section>
+        )}
+
         {/* FAQ */}
         {page.content.faq.length > 0 && (
           <section className="py-12 px-6 bg-gray-50">
@@ -174,11 +233,60 @@ export default async function SubdomainSubPage({ params }: Props) {
           </section>
         )}
 
+        {/* 추가 6: 관련 글 내부 링크 */}
+        {relatedPages.length > 0 && (
+          <section className="py-12 px-6">
+            <div className="max-w-4xl mx-auto">
+              <h2
+                className="text-xl font-bold mb-5"
+                style={{ color: theme.primaryColor }}
+              >
+                관련 글
+              </h2>
+              <div className="space-y-3">
+                {relatedPages.map((related) => (
+                  <a
+                    key={related.slug}
+                    href={related.slug === data.pages[0].slug ? '/' : `/${related.slug}`}
+                    className="flex items-start gap-3 p-4 rounded-lg border hover:shadow-md transition-shadow bg-white"
+                    style={{ borderColor: `${theme.primaryColor}20` }}
+                  >
+                    <span
+                      className="mt-1 w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: theme.accentColor }}
+                    />
+                    <div>
+                      <p className="font-medium text-gray-800">{related.title}</p>
+                      <p className="text-sm text-gray-500 mt-0.5 line-clamp-1">
+                        {related.keywords.slice(0, 3).join(' · ')}
+                      </p>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
         <footer
-          className="py-6 text-center text-sm border-t"
-          style={{ color: theme.primaryColor, borderColor: `${theme.primaryColor}30` }}
+          className="py-8 px-6 border-t"
+          style={{ borderColor: `${theme.primaryColor}30` }}
         >
-          <p>© {new Date().getFullYear()} Powered by pSEO Factory.</p>
+          <div className="max-w-4xl mx-auto">
+            <p className="text-center text-sm mb-3" style={{ color: theme.primaryColor }}>
+              © {new Date().getFullYear()} Powered by pSEO Factory.
+            </p>
+            <p className="text-center text-xs text-gray-400 mb-3">
+              본 콘텐츠는 정보 제공 목적으로만 제공됩니다. 2026년 3월 기준 작성 내용으로 실제 상황과 다를 수 있습니다.
+            </p>
+            <div className="flex justify-center gap-4 text-xs" style={{ color: theme.primaryColor }}>
+              <a href="/about" className="hover:underline">사이트 소개</a>
+              <span>·</span>
+              <a href="/privacy" className="hover:underline">개인정보 처리방침</a>
+              <span>·</span>
+              <a href="/contact" className="hover:underline">문의하기</a>
+            </div>
+          </div>
         </footer>
       </main>
     </>

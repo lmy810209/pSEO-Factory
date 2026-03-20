@@ -7,6 +7,7 @@ export interface PseoPage {
     hero: string;
     sections: { heading: string; body: string }[];
     faq: { q: string; a: string }[];
+    mapQuery?: string;
   };
 }
 

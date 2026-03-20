@@ -5,6 +5,8 @@ import { submitToSearchEngines } from '@/lib/searchconsole';
 
 export const maxDuration = 30;
 
+const INDEX_LOG_PATH = path.join(process.cwd(), 'public', 'indexing-log.json');
+
 interface IndexLogEntry {
   slug: string;
   url: string;
@@ -17,8 +19,6 @@ interface IndexLog {
   failed: IndexLogEntry[];
 }
 
-const INDEX_LOG_PATH = path.join(process.cwd(), 'public', 'indexing-log.json');
-
 function readIndexLog(): IndexLog {
   try {
     if (fs.existsSync(INDEX_LOG_PATH)) {
@@ -30,46 +30,27 @@ function readIndexLog(): IndexLog {
 
 function writeIndexLog(log: IndexLog): void {
   try {
-    const dir = path.dirname(INDEX_LOG_PATH);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(INDEX_LOG_PATH, JSON.stringify(log, null, 2));
   } catch { /* ignore in read-only environments */ }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as {
-      slug?: unknown;
-      siteUrl?: unknown;
-      sitemapUrl?: unknown;
-      pageUrls?: unknown;
-    };
-
-    const slug = typeof body.slug === 'string' ? body.slug : '';
+    const body = (await req.json()) as { slug?: unknown };
+    const slug = typeof body.slug === 'string' ? body.slug.trim() : '';
     if (!slug) {
       return NextResponse.json(
-        { error: 'slug가 필요합니다.', step: 'index' },
+        { error: 'slug가 필요합니다.' },
         { status: 400 }
       );
     }
 
     const baseDomain = process.env.BASE_DOMAIN ?? 'linoranex.com';
-    const siteUrl =
-      typeof body.siteUrl === 'string'
-        ? body.siteUrl
-        : `https://${slug}.${baseDomain}`;
-    const sitemapUrl =
-      typeof body.sitemapUrl === 'string'
-        ? body.sitemapUrl
-        : `${siteUrl}/sitemap.xml`;
-    const pageUrls = Array.isArray(body.pageUrls)
-      ? (body.pageUrls as unknown[]).filter((u): u is string => typeof u === 'string')
-      : [];
+    const siteUrl = `https://${slug}.${baseDomain}`;
+    const sitemapUrl = `${siteUrl}/sitemap.xml`;
 
-    // 키가 없으면 skip — 파이프라인 중단 금지
-    const result = await submitToSearchEngines(siteUrl, sitemapUrl, pageUrls);
+    const result = await submitToSearchEngines(siteUrl, sitemapUrl);
 
-    // 추가 9: 인덱싱 로그 기록
     const log = readIndexLog();
     const entry: IndexLogEntry = { slug, url: siteUrl, timestamp: Date.now() };
     const isOk = result.google.ok || result.googleIndexing.ok || result.naver.ok;
@@ -83,26 +64,15 @@ export async function POST(req: NextRequest) {
         .filter(Boolean)
         .join('; ');
       log.failed = [
-        { ...entry, error: reason || '제출 실패' },
+        { ...entry, error: reason || '재시도 실패' },
         ...log.failed.filter((e) => e.slug !== slug),
       ].slice(0, 100);
     }
     writeIndexLog(log);
 
-    return NextResponse.json({
-      slug,
-      siteUrl,
-      sitemapUrl,
-      google: result.google,
-      googleIndexing: result.googleIndexing,
-      naver: result.naver,
-    });
+    return NextResponse.json({ slug, siteUrl, ...result });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : '알 수 없는 오류';
-    return NextResponse.json(
-      { error: message, step: 'index' },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : '알 수 없는 오류';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

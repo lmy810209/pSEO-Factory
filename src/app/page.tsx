@@ -20,6 +20,18 @@ interface HistoryItem {
   createdAt: number;
 }
 
+interface IndexLogEntry {
+  slug: string;
+  url: string;
+  timestamp: number;
+  error?: string;
+}
+
+interface IndexLog {
+  success: IndexLogEntry[];
+  failed: IndexLogEntry[];
+}
+
 const INITIAL_STEPS: Step[] = [
   { id: 'generate', label: 'AI 콘텐츠 & 테마 생성',    status: 'pending' },
   { id: 'build',    label: '페이지 빌드 & SEO 검증',    status: 'pending' },
@@ -31,6 +43,7 @@ const INITIAL_STEPS: Step[] = [
 
 const BASE_DOMAIN = process.env.NEXT_PUBLIC_BASE_DOMAIN ?? 'linoranex.com';
 const HISTORY_KEY = 'pseo_history';
+const INDEX_LOG_KEY = 'pseo_index_log';
 
 function StepIcon({ status }: { status: StepStatus }) {
   if (status === 'running')  return <Loader2 className="w-5 h-5 animate-spin text-blue-500" />;
@@ -47,12 +60,16 @@ export default function Home() {
   const [finalUrl, setFinalUrl] = useState('');
   const [themeInfo, setThemeInfo] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const vercelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [indexLog, setIndexLog] = useState<IndexLog>({ success: [], failed: [] });
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem(HISTORY_KEY);
       if (saved) setHistory(JSON.parse(saved) as HistoryItem[]);
+    } catch { /* ignore */ }
+    try {
+      const log = localStorage.getItem(INDEX_LOG_KEY);
+      if (log) setIndexLog(JSON.parse(log) as IndexLog);
     } catch { /* ignore */ }
   }, []);
 
@@ -79,6 +96,32 @@ export default function Home() {
   function clearHistory() {
     localStorage.removeItem(HISTORY_KEY);
     setHistory([]);
+  }
+
+  function updateIndexLog(entry: IndexLogEntry, ok: boolean) {
+    setIndexLog((prev) => {
+      const next: IndexLog = ok
+        ? {
+            success: [entry, ...prev.success.filter((e) => e.slug !== entry.slug)].slice(0, 100),
+            failed: prev.failed.filter((e) => e.slug !== entry.slug),
+          }
+        : {
+            success: prev.success.filter((e) => e.slug !== entry.slug),
+            failed: [entry, ...prev.failed.filter((e) => e.slug !== entry.slug)].slice(0, 100),
+          };
+      localStorage.setItem(INDEX_LOG_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  async function retryIndex(slug: string) {
+    try {
+      await apiPost('/api/retry-index', { slug });
+      const entry: IndexLogEntry = { slug, url: `https://${slug}.${BASE_DOMAIN}`, timestamp: Date.now() };
+      updateIndexLog(entry, true);
+    } catch {
+      /* ignore retry errors */
+    }
   }
 
   async function apiPost<T>(url: string, body: unknown): Promise<T> {
@@ -130,18 +173,38 @@ export default function Home() {
       sitemapUrl = buildResult.sitemapUrl;
       setStep('build', 'done', `${Object.keys(buildResult.files).length}개 파일 생성`);
 
-      // [3] GitHub 커밋
+      // [3] GitHub 커밋 (빠른 반환 — Vercel 폴링 제외)
       setStep('github', 'running');
-      vercelTimerRef.current = setTimeout(() => setStep('vercel', 'running'), 3000);
-
-      const deployResult = await apiPost<{ deployUrl: string; projectId: string; commitSha: string }>(
+      const deployResult = await apiPost<{ commitSha: string; projectId: string }>(
         '/api/deploy',
         { slug, files: buildResult.files }
       );
-      if (vercelTimerRef.current) clearTimeout(vercelTimerRef.current);
       setStep('github', 'done', deployResult.commitSha.slice(0, 8));
-      setStep('vercel', 'done', deployResult.deployUrl.replace('https://', '').slice(0, 40) + '…');
       projectId = deployResult.projectId;
+
+      // [4] Vercel 배포 대기 — 클라이언트에서 12회 폴링 (10초 간격, 최대 120초)
+      setStep('vercel', 'running');
+      let deployUrl = '';
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 10_000));
+        try {
+          const poll = await apiPost<{ state: string; deployUrl?: string }>(
+            '/api/poll-deploy',
+            { commitSha: deployResult.commitSha, projectId }
+          );
+          if (poll.state === 'READY' && poll.deployUrl) {
+            deployUrl = poll.deployUrl;
+            break;
+          }
+          if (poll.state === 'ERROR' || poll.state === 'CANCELED') {
+            throw new Error(`Vercel 배포 실패 (${poll.state})`);
+          }
+        } catch (pollErr) {
+          if (i === 11) throw pollErr;
+        }
+      }
+      if (!deployUrl) throw Object.assign(new Error('Vercel 배포 타임아웃: 120초 내 READY 미확인'), { step: 'vercel' });
+      setStep('vercel', 'done', deployUrl.replace('https://', '').slice(0, 40) + '…');
 
       // [5] 서브도메인 연결
       setStep('domain', 'running');
@@ -150,23 +213,35 @@ export default function Home() {
 
       // [6] 서치콘솔 등록 (키 없으면 skip)
       setStep('index', 'running');
+      const pageUrls = (genResult.pages as Array<{ slug: string }>).map(
+        (p) => `https://${slug}.${BASE_DOMAIN}/${p.slug}`
+      );
       const indexResult = await apiPost<{
         google: { ok: boolean; skipped: boolean };
+        googleIndexing: { ok: boolean; skipped: boolean; submittedUrls?: number };
         naver: { ok: boolean; skipped: boolean };
-      }>('/api/index', { slug, siteUrl, sitemapUrl });
+      }>('/api/index', { slug, siteUrl, sitemapUrl, pageUrls });
 
       const indexDetail = [
         `구글: ${indexResult.google.skipped ? 'skip' : indexResult.google.ok ? '✅' : '❌'}`,
+        `인덱싱API: ${indexResult.googleIndexing.skipped ? 'skip' : indexResult.googleIndexing.ok ? `✅(${indexResult.googleIndexing.submittedUrls ?? 0})` : '❌'}`,
         `네이버: ${indexResult.naver.skipped ? 'skip' : indexResult.naver.ok ? '✅' : '❌'}`,
       ].join(' · ');
       setStep('index', 'done', indexDetail);
+
+      // 인덱싱 로그 클라이언트 저장
+      const isOk = indexResult.google.ok || indexResult.googleIndexing.ok || indexResult.naver.ok;
+      const allSkipped = indexResult.google.skipped && indexResult.googleIndexing.skipped && indexResult.naver.skipped;
+      updateIndexLog(
+        { slug, url: `https://${slug}.${BASE_DOMAIN}`, timestamp: Date.now() },
+        isOk || allSkipped
+      );
 
       const url = `https://${slug}.${BASE_DOMAIN}`;
       setFinalUrl(url);
       saveHistory({ topic: topic.trim(), slug, url, createdAt: Date.now() });
 
     } catch (err) {
-      if (vercelTimerRef.current) clearTimeout(vercelTimerRef.current);
       const error = err as Error & { step?: string };
       const failedStep = error.step ?? steps.find((s) => s.status === 'running')?.id;
       if (failedStep) setStep(failedStep, 'error', undefined, error.message);
@@ -267,6 +342,43 @@ export default function Home() {
               {finalUrl}
               <ExternalLink className="w-4 h-4" />
             </a>
+          </div>
+        )}
+
+        {/* Indexing Log Stats (추가 9) */}
+        {(indexLog.success.length > 0 || indexLog.failed.length > 0) && (
+          <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6 mb-6">
+            <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-4">
+              인덱싱 현황
+            </h2>
+            <div className="flex gap-4 mb-4">
+              <div className="flex-1 bg-green-900/20 border border-green-800/30 rounded-xl p-3 text-center">
+                <p className="text-2xl font-bold text-green-400">{indexLog.success.length}</p>
+                <p className="text-xs text-slate-400 mt-1">성공</p>
+              </div>
+              <div className="flex-1 bg-red-900/20 border border-red-800/30 rounded-xl p-3 text-center">
+                <p className="text-2xl font-bold text-red-400">{indexLog.failed.length}</p>
+                <p className="text-xs text-slate-400 mt-1">실패</p>
+              </div>
+            </div>
+            {indexLog.failed.length > 0 && (
+              <div>
+                <p className="text-xs text-slate-500 mb-2">실패 목록</p>
+                <div className="space-y-1">
+                  {indexLog.failed.slice(0, 5).map((item) => (
+                    <div key={item.slug} className="flex items-center justify-between py-1.5 px-3 bg-slate-700/50 rounded-lg">
+                      <span className="text-xs text-slate-300 truncate flex-1">{item.slug}</span>
+                      <button
+                        onClick={() => retryIndex(item.slug)}
+                        className="text-xs text-blue-400 hover:text-blue-300 ml-3 whitespace-nowrap"
+                      >
+                        재시도
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

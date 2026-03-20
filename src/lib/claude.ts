@@ -107,12 +107,19 @@ Google Fonts 한국어 추천: "Noto Serif KR", "Noto Sans KR", "Black Han Sans"
 - 한국어로 콘텐츠 작성 (slug, 폰트명, mapQuery 제외)
 - fontPair의 폰트명은 Google Fonts API에서 실제 사용 가능한 정확한 이름으로`;
 
-  const message = await client.messages.create({
+  // Streaming으로 전환: Vercel 함수 타임아웃 방지 (청크 전송으로 연결 유지)
+  const stream = client.messages.stream({
     model: MODEL,
-    max_tokens: 16000,
-    system: 'JSON만 반환. 마크다운 펜스 없이 순수 JSON만 출력.',
+    max_tokens: 32000,
+    system: 'JSON만 반환. 마크다운 펜스 없이 순수 JSON만 출력. 반드시 JSON을 완성해서 닫아라.',
     messages: [{ role: 'user', content: userPrompt }],
   });
+
+  const message = await stream.finalMessage();
+
+  if (message.stop_reason === 'max_tokens') {
+    throw new Error('Claude 응답이 토큰 한도에 도달해 JSON이 잘렸습니다. 재시도해주세요.');
+  }
 
   const text =
     message.content[0].type === 'text' ? message.content[0].text : '';

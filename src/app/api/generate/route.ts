@@ -4,7 +4,7 @@ import path from 'path';
 import { generatePages } from '@/lib/claude';
 import { toSlug } from '@/lib/utils';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 function slugExists(slug: string): boolean {
   try {

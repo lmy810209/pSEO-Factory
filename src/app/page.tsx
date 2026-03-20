@@ -178,7 +178,7 @@ export default function Home() {
         slug: string;
         pages: unknown[];
         theme: { mood: string; primaryColor: string; fontPair: { heading: string } };
-      }>('/api/generate', { topic: topic.trim() });
+      }>('/api/generate', { topic: topic.trim() }, 300_000);
       slug = genResult.slug;
       const { mood, primaryColor, fontPair } = genResult.theme;
       setThemeInfo(`${mood} · ${primaryColor} · ${fontPair.heading}`);

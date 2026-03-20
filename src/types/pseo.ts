@@ -10,12 +10,25 @@ export interface PseoPage {
   };
 }
 
+export interface SiteTheme {
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  gradientDirection: string;
+  mood: 'cheerful' | 'natural' | 'calm' | 'energetic';
+  fontPair: {
+    heading: string;
+    body: string;
+  };
+}
+
 export interface PseoJob {
   id: string;
   topic: string;
   slug: string;
   subdomain: string;
   pages: PseoPage[];
+  theme: SiteTheme;
   status: PipelineStatus;
   createdAt: number;
   deployUrl?: string;
@@ -28,5 +41,6 @@ export type PipelineStatus =
   | 'building'
   | 'deploying'
   | 'connecting'
+  | 'indexing'
   | 'done'
   | 'error';

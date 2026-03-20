@@ -3,12 +3,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { Loader2, CheckCircle2, XCircle, Circle, ExternalLink, History, Trash2 } from 'lucide-react';
 
-type StepStatus = 'pending' | 'running' | 'done' | 'error';
+type StepStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped';
 
 interface Step {
   id: string;
   label: string;
   status: StepStatus;
+  detail?: string;
   error?: string;
 }
 
@@ -20,21 +21,23 @@ interface HistoryItem {
 }
 
 const INITIAL_STEPS: Step[] = [
-  { id: 'generate', label: 'AI 콘텐츠 생성', status: 'pending' },
-  { id: 'build',    label: '페이지 빌드 & SEO 검증', status: 'pending' },
-  { id: 'github',   label: 'GitHub 커밋', status: 'pending' },
-  { id: 'vercel',   label: 'Vercel 배포 대기', status: 'pending' },
-  { id: 'domain',   label: '서브도메인 연결', status: 'pending' },
+  { id: 'generate', label: 'AI 콘텐츠 & 테마 생성',    status: 'pending' },
+  { id: 'build',    label: '페이지 빌드 & SEO 검증',    status: 'pending' },
+  { id: 'github',   label: 'GitHub 커밋',               status: 'pending' },
+  { id: 'vercel',   label: 'Vercel 배포 대기',           status: 'pending' },
+  { id: 'domain',   label: '서브도메인 연결',             status: 'pending' },
+  { id: 'index',    label: '서치콘솔 등록',              status: 'pending' },
 ];
 
-const BASE_DOMAIN = process.env.NEXT_PUBLIC_BASE_DOMAIN ?? 'igeol.kr';
+const BASE_DOMAIN = process.env.NEXT_PUBLIC_BASE_DOMAIN ?? 'linoranex.com';
 const HISTORY_KEY = 'pseo_history';
 
 function StepIcon({ status }: { status: StepStatus }) {
-  if (status === 'running') return <Loader2 className="w-5 h-5 animate-spin text-blue-500" />;
-  if (status === 'done') return <CheckCircle2 className="w-5 h-5 text-green-500" />;
-  if (status === 'error') return <XCircle className="w-5 h-5 text-red-500" />;
-  return <Circle className="w-5 h-5 text-gray-300" />;
+  if (status === 'running')  return <Loader2 className="w-5 h-5 animate-spin text-blue-500" />;
+  if (status === 'done')     return <CheckCircle2 className="w-5 h-5 text-green-500" />;
+  if (status === 'error')    return <XCircle className="w-5 h-5 text-red-500" />;
+  if (status === 'skipped')  return <Circle className="w-5 h-5 text-slate-600" />;
+  return <Circle className="w-5 h-5 text-slate-700" />;
 }
 
 export default function Home() {
@@ -42,6 +45,7 @@ export default function Home() {
   const [steps, setSteps] = useState<Step[]>(INITIAL_STEPS);
   const [isRunning, setIsRunning] = useState(false);
   const [finalUrl, setFinalUrl] = useState('');
+  const [themeInfo, setThemeInfo] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const vercelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -52,15 +56,16 @@ export default function Home() {
     } catch { /* ignore */ }
   }, []);
 
-  function setStep(id: string, status: StepStatus, error?: string) {
+  function setStep(id: string, status: StepStatus, detail?: string, error?: string) {
     setSteps((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, status, error } : s))
+      prev.map((s) => (s.id === id ? { ...s, status, detail, error } : s))
     );
   }
 
   function resetSteps() {
-    setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: 'pending', error: undefined })));
+    setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: 'pending' as StepStatus, detail: undefined, error: undefined })));
     setFinalUrl('');
+    setThemeInfo('');
   }
 
   function saveHistory(item: HistoryItem) {
@@ -98,46 +103,63 @@ export default function Home() {
 
     let slug = '';
     let projectId = '';
+    let siteUrl = '';
+    let sitemapUrl = '';
 
     try {
-      // [1] AI 콘텐츠 생성
+      // [1] AI 콘텐츠 & 테마 생성
       setStep('generate', 'running');
-      const genResult = await apiPost<{ slug: string; pages: unknown[] }>(
-        '/api/generate',
-        { topic: topic.trim() }
-      );
+      const genResult = await apiPost<{
+        slug: string;
+        pages: unknown[];
+        theme: { mood: string; primaryColor: string; fontPair: { heading: string } };
+      }>('/api/generate', { topic: topic.trim() });
       slug = genResult.slug;
-      setStep('generate', 'done');
+      const { mood, primaryColor, fontPair } = genResult.theme;
+      setThemeInfo(`${mood} · ${primaryColor} · ${fontPair.heading}`);
+      setStep('generate', 'done', `${mood} 테마 · ${genResult.pages.length}페이지`);
 
       // [2] 페이지 빌드 & SEO 검증
       setStep('build', 'running');
-      const buildResult = await apiPost<{ files: Record<string, string> }>(
-        '/api/build',
-        { slug, pages: genResult.pages }
-      );
-      setStep('build', 'done');
+      const buildResult = await apiPost<{
+        files: Record<string, string>;
+        siteUrl: string;
+        sitemapUrl: string;
+      }>('/api/build', { slug, pages: genResult.pages, theme: genResult.theme });
+      siteUrl = buildResult.siteUrl;
+      sitemapUrl = buildResult.sitemapUrl;
+      setStep('build', 'done', `${Object.keys(buildResult.files).length}개 파일 생성`);
 
-      // [3] GitHub 커밋 (deploy API 호출 시작 → 즉시 running 표시)
+      // [3] GitHub 커밋
       setStep('github', 'running');
-      // 3초 후 Vercel 단계도 running으로 전환 (GitHub push 후 Vercel이 감지하는 시간)
-      vercelTimerRef.current = setTimeout(() => {
-        setStep('vercel', 'running');
-      }, 3000);
+      vercelTimerRef.current = setTimeout(() => setStep('vercel', 'running'), 3000);
 
-      const deployResult = await apiPost<{ deployUrl: string; projectId: string }>(
+      const deployResult = await apiPost<{ deployUrl: string; projectId: string; commitSha: string }>(
         '/api/deploy',
         { slug, files: buildResult.files }
       );
-
       if (vercelTimerRef.current) clearTimeout(vercelTimerRef.current);
-      setStep('github', 'done');
-      setStep('vercel', 'done');
+      setStep('github', 'done', deployResult.commitSha.slice(0, 8));
+      setStep('vercel', 'done', deployResult.deployUrl.replace('https://', '').slice(0, 40) + '…');
       projectId = deployResult.projectId;
 
       // [5] 서브도메인 연결
       setStep('domain', 'running');
       await apiPost('/api/domain', { slug, projectId });
-      setStep('domain', 'done');
+      setStep('domain', 'done', `${slug}.${BASE_DOMAIN}`);
+
+      // [6] 서치콘솔 등록 (키 없으면 skip)
+      setStep('index', 'running');
+      const indexResult = await apiPost<{
+        google: { ok: boolean; skipped: boolean };
+        naver: { ok: boolean; skipped: boolean };
+      }>('/api/index', { slug, siteUrl, sitemapUrl });
+
+      const indexDetail = [
+        `구글: ${indexResult.google.skipped ? 'skip' : indexResult.google.ok ? '✅' : '❌'}`,
+        `네이버: ${indexResult.naver.skipped ? 'skip' : indexResult.naver.ok ? '✅' : '❌'}`,
+      ].join(' · ');
+      setStep('index', 'done', indexDetail);
 
       const url = `https://${slug}.${BASE_DOMAIN}`;
       setFinalUrl(url);
@@ -147,9 +169,7 @@ export default function Home() {
       if (vercelTimerRef.current) clearTimeout(vercelTimerRef.current);
       const error = err as Error & { step?: string };
       const failedStep = error.step ?? steps.find((s) => s.status === 'running')?.id;
-      if (failedStep) {
-        setStep(failedStep, 'error', error.message);
-      }
+      if (failedStep) setStep(failedStep, 'error', undefined, error.message);
     } finally {
       setIsRunning(false);
     }
@@ -191,6 +211,9 @@ export default function Home() {
               {isRunning ? '생성 중...' : '실행'}
             </button>
           </div>
+          {themeInfo && (
+            <p className="mt-2 text-xs text-slate-400">🎨 테마: {themeInfo}</p>
+          )}
         </div>
 
         {/* Pipeline Status */}
@@ -206,23 +229,20 @@ export default function Home() {
                   <StepIcon status={step.status} />
                   <span
                     className={
-                      step.status === 'done'
-                        ? 'text-green-400'
-                        : step.status === 'running'
-                        ? 'text-blue-400 font-medium'
-                        : step.status === 'error'
-                        ? 'text-red-400'
-                        : 'text-slate-500'
+                      step.status === 'done'    ? 'text-green-400' :
+                      step.status === 'running' ? 'text-blue-400 font-medium' :
+                      step.status === 'error'   ? 'text-red-400' :
+                      step.status === 'skipped' ? 'text-slate-600' :
+                                                  'text-slate-500'
                     }
                   >
                     {step.label}
                   </span>
-                  {step.status === 'running' && (
-                    <span className="ml-auto text-xs text-blue-400 animate-pulse">진행 중</span>
-                  )}
-                  {step.status === 'done' && (
-                    <span className="ml-auto text-xs text-green-500">완료</span>
-                  )}
+                  <span className="ml-auto text-xs">
+                    {step.status === 'running' && <span className="text-blue-400 animate-pulse">진행 중</span>}
+                    {step.status === 'done' && step.detail && <span className="text-slate-400">{step.detail}</span>}
+                    {step.status === 'skipped' && <span className="text-slate-600">skip</span>}
+                  </span>
                 </div>
                 {step.status === 'error' && step.error && (
                   <p className="mt-1 ml-12 text-xs text-red-400 bg-red-900/20 px-3 py-2 rounded">
@@ -258,32 +278,19 @@ export default function Home() {
                 <History className="w-4 h-4" />
                 생성 이력
               </h2>
-              <button
-                onClick={clearHistory}
-                className="text-slate-600 hover:text-red-400 transition-colors"
-                title="이력 삭제"
-              >
+              <button onClick={clearHistory} className="text-slate-600 hover:text-red-400 transition-colors" title="이력 삭제">
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
             <div className="space-y-2">
               {history.map((item) => (
-                <div
-                  key={item.slug}
-                  className="flex items-center justify-between py-2 border-b border-slate-700 last:border-0"
-                >
+                <div key={item.slug} className="flex items-center justify-between py-2 border-b border-slate-700 last:border-0">
                   <div>
                     <p className="text-sm font-medium text-slate-300">{item.topic}</p>
-                    <p className="text-xs text-slate-500">
-                      {new Date(item.createdAt).toLocaleString('ko-KR')}
-                    </p>
+                    <p className="text-xs text-slate-500">{new Date(item.createdAt).toLocaleString('ko-KR')}</p>
                   </div>
-                  <a
-                    href={item.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                  >
+                  <a href={item.url} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
                     {item.url.replace('https://', '')}
                     <ExternalLink className="w-3 h-3" />
                   </a>

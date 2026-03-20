@@ -1,0 +1,192 @@
+{
+  "name": "pSEO Factory 자동 생성",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 * * *"
+            }
+          ]
+        },
+        "timezone": "Asia/Seoul"
+      },
+      "id": "node-schedule",
+      "name": "매일 09:00 KST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://trends.google.com/trends/trendingsearches/daily/rss?geo=KR",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "node-google-trends",
+      "name": "Google 트렌드 RSS 가져오기",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Google Trends RSS에서 첫 번째 트렌드 키워드 추출\nconst xml = $input.first().json.data;\n\n// <title> 태그에서 검색어 추출 (첫 번째 item의 title)\nconst matches = xml.match(/<item>[\\s\\S]*?<title><!\\[CDATA\\[(.+?)\\]\\]><\\/title>/m)\n             || xml.match(/<item>[\\s\\S]*?<title>(.+?)<\\/title>/m);\n\nif (!matches || !matches[1]) {\n  throw new Error('Google Trends RSS에서 키워드를 찾을 수 없습니다.');\n}\n\nconst keyword = matches[1].trim();\nconsole.log('추출된 키워드:', keyword);\n\nreturn [{ json: { topic: keyword } }];"
+      },
+      "id": "node-extract-keyword",
+      "name": "트렌드 키워드 추출",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PSEO_FACTORY_URL }}/api/auto-generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $env.WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"topic\": \"{{ $json.topic }}\"\n}",
+        "options": {
+          "timeout": 600000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "node-pseo-call",
+      "name": "pSEO Factory 파이프라인 실행",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-ok",
+              "leftValue": "={{ $json.body.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "node-if-success",
+      "name": "성공 여부 확인",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "=✅ <b>pSEO Factory 자동 생성 완료!</b>\n\n📌 주제: {{ $('트렌드 키워드 추출').first().json.topic }}\n🔗 URL: <a href=\"{{ $json.body.finalUrl }}\">{{ $json.body.finalUrl }}</a>\n📄 페이지: {{ $json.body.pages }}개\n🎨 테마: {{ $json.body.theme }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "disable_web_page_preview": false
+        }
+      },
+      "id": "node-telegram-success",
+      "name": "텔레그램 성공 알림",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-cred",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "=❌ <b>pSEO Factory 생성 실패</b>\n\n📌 주제: {{ $('트렌드 키워드 추출').first().json.topic }}\n⚠️ 단계: {{ $json.body.step }}\n💬 오류: {{ $json.body.error }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "node-telegram-fail",
+      "name": "텔레그램 실패 알림",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-cred",
+          "name": "Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "매일 09:00 KST": {
+      "main": [
+        [{ "node": "Google 트렌드 RSS 가져오기", "type": "main", "index": 0 }]
+      ]
+    },
+    "Google 트렌드 RSS 가져오기": {
+      "main": [
+        [{ "node": "트렌드 키워드 추출", "type": "main", "index": 0 }]
+      ]
+    },
+    "트렌드 키워드 추출": {
+      "main": [
+        [{ "node": "pSEO Factory 파이프라인 실행", "type": "main", "index": 0 }]
+      ]
+    },
+    "pSEO Factory 파이프라인 실행": {
+      "main": [
+        [{ "node": "성공 여부 확인", "type": "main", "index": 0 }]
+      ]
+    },
+    "성공 여부 확인": {
+      "main": [
+        [{ "node": "텔레그램 성공 알림", "type": "main", "index": 0 }],
+        [{ "node": "텔레그램 실패 알림", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": ["pSEO", "자동화"],
+  "triggerCount": 0,
+  "updatedAt": "2026-03-20T00:00:00.000Z",
+  "versionId": "1"
+}

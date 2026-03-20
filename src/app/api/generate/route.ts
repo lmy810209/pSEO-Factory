@@ -28,9 +28,7 @@ export async function POST(req: NextRequest) {
     const result = await generatePages(topic, requirements || undefined);
 
     // Claude가 반환한 slug를 정규화하되, 비어있으면 topic으로 생성
-    const slug = result.slug
-      ? toSlug(result.slug)
-      : toSlug(topic);
+    const slug = result.slug ? toSlug(result.slug) : toSlug(topic);
 
     // slug 검증 — 빈 문자열이면 파이프라인 중단
     if (!slug) {
@@ -40,7 +38,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ slug, pages: result.pages });
+    return NextResponse.json({ slug, pages: result.pages, theme: result.theme });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : '알 수 없는 오류';

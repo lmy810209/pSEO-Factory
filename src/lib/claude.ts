@@ -69,7 +69,7 @@ export async function generatePages(
 
   const message = await client.messages.create({
     model: MODEL,
-    max_tokens: 8096,
+    max_tokens: 16000,
     system: 'JSON만 반환. 마크다운 펜스 없이 순수 JSON만 출력.',
     messages: [{ role: 'user', content: userPrompt }],
   });

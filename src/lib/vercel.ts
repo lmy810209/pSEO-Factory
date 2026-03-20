@@ -23,6 +23,11 @@ async function vercelFetch(
 }
 
 export async function findProjectId(): Promise<string> {
+  // VERCEL_PROJECT_ID가 있으면 API 호출 없이 바로 반환
+  if (process.env.VERCEL_PROJECT_ID) {
+    return process.env.VERCEL_PROJECT_ID;
+  }
+
   const { VERCEL_TOKEN, VERCEL_TEAM_ID, GITHUB_REPO } = validateEnv();
   const repoName = GITHUB_REPO.split('/')[1];
 

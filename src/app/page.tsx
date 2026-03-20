@@ -22,8 +22,8 @@ export default function Home() {
       if (result.success && result.data) {
         setGeneratedSites(prevSites => [result.data!, ...prevSites]);
         toast({
-          title: 'Success!',
-          description: 'Your new site structure has been generated.',
+          title: '성공!',
+          description: '새 사이트 구조가 생성되었습니다.',
         });
       } else {
         throw new Error(result.error || 'An unknown error occurred.');
@@ -32,7 +32,7 @@ export default function Home() {
       const errorMessage = error instanceof Error ? error.message : 'Failed to generate site.';
       toast({
         variant: 'destructive',
-        title: 'Generation Failed',
+        title: '생성 실패',
         description: errorMessage,
       });
     } finally {
@@ -46,10 +46,10 @@ export default function Home() {
       <main className="flex-grow container mx-auto px-4 py-8 md:py-12">
         <section className="max-w-3xl mx-auto text-center">
           <h1 className="text-3xl md:text-5xl font-bold text-foreground tracking-tight">
-            Instantly Generate SEO-Optimized Websites
+            SEO 최적화 웹사이트를 즉시 생성하세요
           </h1>
           <p className="mt-4 text-lg md:text-xl text-muted-foreground">
-            Just provide a topic, and our AI will build a complete, multi-page site structure ready for deployment.
+            주제만 입력하면 AI가 배포 준비된 완전한 멀티페이지 사이트 구조를 자동으로 만들어 드립니다.
           </p>
         </section>
 
@@ -65,15 +65,15 @@ export default function Home() {
           {isGenerating && (
             <div className="flex flex-col items-center justify-center gap-4 text-muted-foreground p-8">
               <Loader2 className="h-12 w-12 animate-spin text-primary" />
-              <p className="text-lg font-medium">Generating your site...</p>
-              <p>This may take a moment. Please wait.</p>
+              <p className="text-lg font-medium">사이트를 생성하는 중...</p>
+              <p>잠시 시간이 걸릴 수 있습니다. 잠깐만 기다려 주세요.</p>
             </div>
           )}
           
           {generatedSites.length > 0 && (
              <div className="space-y-6">
                 <h2 className="text-2xl md:text-3xl font-bold text-center text-foreground">
-                    Generated Sites
+                    생성된 사이트
                 </h2>
                 <div className="grid gap-8">
                     {generatedSites.map((site, index) => (
@@ -88,14 +88,14 @@ export default function Home() {
                 <div className="mx-auto h-12 w-12 text-muted-foreground">
                     <FileText className="h-full w-full" />
                 </div>
-                <h3 className="mt-4 text-lg font-medium text-foreground">No sites generated yet</h3>
-                <p className="mt-2 text-sm text-muted-foreground">Use the form above to create your first AI-powered website.</p>
+                <h3 className="mt-4 text-lg font-medium text-foreground">아직 생성된 사이트가 없습니다</h3>
+                <p className="mt-2 text-sm text-muted-foreground">위의 양식을 사용하여 첫 번째 AI 웹사이트를 만들어 보세요.</p>
             </div>
           )}
         </section>
       </main>
       <footer className="py-6 text-center text-sm text-muted-foreground">
-        <p>&copy; {new Date().getFullYear()} GenSite AI. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} GenSite AI. 모든 권리 보유.</p>
       </footer>
     </div>
   );

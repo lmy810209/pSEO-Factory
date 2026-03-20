@@ -22,11 +22,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 const formSchema = z.object({
   topic: z
     .string()
-    .min(5, { message: 'Topic must be at least 5 characters long.' })
-    .max(100, { message: 'Topic cannot be longer than 100 characters.' }),
+    .min(5, { message: '주제는 최소 5자 이상이어야 합니다.' })
+    .max(100, { message: '주제는 100자를 초과할 수 없습니다.' }),
   requirements: z
     .string()
-    .max(500, { message: 'Requirements cannot be longer than 500 characters.' })
+    .max(500, { message: '요구사항은 500자를 초과할 수 없습니다.' })
     .optional(),
 });
 
@@ -55,7 +55,7 @@ export function GeneratorForm({ onGenerate, isGenerating }: GeneratorFormProps) 
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-2xl">
           <Bot className="h-7 w-7" />
-          Create a New Site
+          새 사이트 만들기
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -66,16 +66,16 @@ export function GeneratorForm({ onGenerate, isGenerating }: GeneratorFormProps) 
               name="topic"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-lg">Main Topic</FormLabel>
+                  <FormLabel className="text-lg">주요 주제</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder="e.g., &quot;Children's Day event venues in Seoul&quot;"
+                      placeholder='예: "서울 어린이날 행사 장소"'
                       {...field}
                       className="text-base"
                     />
                   </FormControl>
                   <FormDescription>
-                    This is the central theme for your new website.
+                    새 웹사이트의 중심 테마입니다.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -86,16 +86,16 @@ export function GeneratorForm({ onGenerate, isGenerating }: GeneratorFormProps) 
               name="requirements"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-lg">Keywords & Requirements (Optional)</FormLabel>
+                  <FormLabel className="text-lg">키워드 및 요구사항 (선택)</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder='e.g., "family-friendly, outdoor activities, budget-friendly options"'
+                      placeholder='예: "가족 친화적, 야외 활동, 합리적인 가격"'
                       className="resize-none"
                       {...field}
                     />
                   </FormControl>
                   <FormDescription>
-                    Add any specific keywords, target audience, or other SEO requirements.
+                    특정 키워드, 타겟 독자, 또는 기타 SEO 요구사항을 추가하세요.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -105,12 +105,12 @@ export function GeneratorForm({ onGenerate, isGenerating }: GeneratorFormProps) 
               {isGenerating ? (
                 <>
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Generating...
+                  생성 중...
                 </>
               ) : (
                 <>
                   <Bot className="mr-2 h-5 w-5" />
-                  Generate Site with AI
+                  AI로 사이트 생성하기
                 </>
               )}
             </Button>

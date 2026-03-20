@@ -124,13 +124,27 @@ export default function Home() {
     }
   }
 
-  async function apiPost<T>(url: string, body: unknown): Promise<T> {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = (await res.json()) as T & { error?: string; step?: string };
+  async function apiPost<T>(url: string, body: unknown, timeoutMs = 58_000): Promise<T> {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (e) {
+      if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+        throw new Error('요청 시간 초과 (서버 응답 없음). 재시도해주세요.');
+      }
+      throw e;
+    }
+    let data: T & { error?: string; step?: string };
+    try {
+      data = (await res.json()) as T & { error?: string; step?: string };
+    } catch {
+      throw new Error(`서버 오류 (${res.status}). 재시도해주세요.`);
+    }
     if (!res.ok) {
       throw Object.assign(new Error((data as { error?: string }).error ?? '오류 발생'), {
         step: (data as { step?: string }).step,

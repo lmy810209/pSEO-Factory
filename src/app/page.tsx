@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Loader2, CheckCircle2, XCircle, Circle, ExternalLink, History, Trash2 } from 'lucide-react';
 
 type StepStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped';
@@ -73,11 +73,19 @@ export default function Home() {
     } catch { /* ignore */ }
   }, []);
 
-  function setStep(id: string, status: StepStatus, detail?: string, error?: string) {
+  // 현재 실행 중인 step을 ref로 추적 (클로저 버그 방지)
+  const currentStepRef = useRef<string | null>(null);
+
+  const setStep = useCallback((id: string, status: StepStatus, detail?: string, error?: string) => {
+    if (status === 'running') {
+      currentStepRef.current = id;
+    } else if (currentStepRef.current === id) {
+      currentStepRef.current = null;
+    }
     setSteps((prev) =>
       prev.map((s) => (s.id === id ? { ...s, status, detail, error } : s))
     );
-  }
+  }, []);
 
   function resetSteps() {
     setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: 'pending' as StepStatus, detail: undefined, error: undefined })));
@@ -257,7 +265,7 @@ export default function Home() {
 
     } catch (err) {
       const error = err as Error & { step?: string };
-      const failedStep = error.step ?? steps.find((s) => s.status === 'running')?.id;
+      const failedStep = error.step ?? currentStepRef.current;
       if (failedStep) setStep(failedStep, 'error', undefined, error.message);
     } finally {
       setIsRunning(false);

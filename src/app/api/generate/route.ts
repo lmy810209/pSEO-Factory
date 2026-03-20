@@ -47,18 +47,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 추가 8: 슬러그 중복 방지 — 기존 사이트와 다른 각도로 재생성
+    // 추가 8: 슬러그 중복 방지 — suffix 추가 (Claude 재호출 없이 빠르게 처리)
     if (slugExists(slug)) {
-      const dedupeReq = `기존 "${slug}" 슬러그와 다른 각도로 작성. 제목과 슬러그에 다른 [지역/상황/타겟/기준] 조합 사용. 기존과 중복되지 않는 새로운 관점 필수.${requirements ? ' ' + requirements : ''}`;
-      result = await generatePages(topic, dedupeReq);
-      slug = result.slug ? toSlug(result.slug) : toSlug(topic + '-v2');
-
-      if (!slug) {
-        return NextResponse.json(
-          { error: 'slug가 빈 문자열입니다.', step: 'generate' },
-          { status: 500 }
-        );
-      }
+      const suffix = Date.now().toString(36).slice(-4);
+      slug = `${slug}-${suffix}`;
     }
 
     return NextResponse.json({ slug, pages: result.pages, theme: result.theme });

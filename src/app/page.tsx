@@ -277,7 +277,11 @@ export default function Home() {
     try {
       data = (await res.json()) as T & { error?: string; step?: string };
     } catch {
-      throw new Error(`서버 오류 (${res.status}). 재시도해주세요.`);
+      // JSON 파싱 실패 → 원시 텍스트를 에러 메시지에 포함해 디버깅 지원
+      let rawText = '';
+      try { rawText = await res.clone().text(); } catch { /* ignore */ }
+      const preview = rawText.slice(0, 200).replace(/\s+/g, ' ');
+      throw new Error(`서버 오류 (${res.status})${preview ? ': ' + preview : '. 재시도해주세요.'}`);
     }
     if (!res.ok) {
       throw Object.assign(new Error((data as { error?: string }).error ?? '오류 발생'), {

@@ -63,8 +63,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ files, slug, sitemapUrl, siteUrl });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : '알 수 없는 오류';
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[build] 오류:', message);
     const errAny = error as Error & { minRequired?: number; actual?: number };
     if (errAny.minRequired !== undefined) {
       return NextResponse.json(
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      { error: message, step: 'build' },
+      { error: `빌드 오류: ${message}`, step: 'build' },
       { status: 500 }
     );
   }

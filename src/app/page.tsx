@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Loader2, CheckCircle2, XCircle, Circle, ExternalLink, History, Trash2 } from 'lucide-react';
+import type { PseoPage, SiteTheme } from '@/types/pseo';
 
 type StepStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped';
 
@@ -170,32 +171,86 @@ export default function Home() {
     let projectId = '';
     let siteUrl = '';
     let sitemapUrl = '';
+    let genPages: PseoPage[] = [];
+    let genTheme: SiteTheme | null = null;
 
     try {
-      // [1] AI 콘텐츠 & 테마 생성
-      setStep('generate', 'running');
-      const genResult = await apiPost<{
-        slug: string;
-        pages: unknown[];
-        theme: { mood: string; primaryColor: string; fontPair: { heading: string } };
-      }>('/api/generate', { topic: topic.trim() }, 300_000);
-      slug = genResult.slug;
-      const { mood, primaryColor, fontPair } = genResult.theme;
-      setThemeInfo(`${mood} · ${primaryColor} · ${fontPair.heading}`);
-      setStep('generate', 'done', `${mood} 테마 · ${genResult.pages.length}페이지`);
+      // [1] AI 콘텐츠 & 테마 생성 — SSE 스트리밍
+      setStep('generate', 'running', '주제 분석 중...');
+
+      let genRes: Response;
+      try {
+        genRes = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: topic.trim() }),
+          signal: AbortSignal.timeout(180_000),
+        });
+      } catch (e) {
+        const msg = e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')
+          ? '요청 시간 초과. 재시도해주세요.'
+          : '네트워크 오류. 재시도해주세요.';
+        throw Object.assign(new Error(msg), { step: 'generate' });
+      }
+
+      if (!genRes.body) throw Object.assign(new Error('스트림 응답 없음'), { step: 'generate' });
+
+      const reader = genRes.body.getReader();
+      const decoder = new TextDecoder();
+      let sseBuf = '';
+      let pageIndex = 0;
+
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        sseBuf += decoder.decode(value, { stream: true });
+        const lines = sseBuf.split('\n');
+        sseBuf = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (line.startsWith(':')) continue; // keepalive
+          if (!line.startsWith('data: ')) continue;
+          let ev: { type: string; [k: string]: unknown };
+          try { ev = JSON.parse(line.slice(6)) as { type: string; [k: string]: unknown }; } catch { continue; }
+
+          if (ev.type === 'theme') {
+            genTheme = ev.theme as SiteTheme;
+            setThemeInfo(`${genTheme.mood} · ${genTheme.primaryColor} · ${genTheme.fontPair.heading}`);
+          } else if (ev.type === 'page') {
+            const page = ev.page as PseoPage;
+            genPages = [...genPages, page];
+            pageIndex = (ev.index as number) + 1;
+            setStep('generate', 'running', `페이지 ${pageIndex}/5 생성 중... ${page.title.slice(0, 18)}`);
+          } else if (ev.type === 'done') {
+            slug = (ev.slug as string) || slug;
+            genTheme = (ev.theme as SiteTheme) ?? genTheme;
+            genPages = (ev.pages as PseoPage[]).length > 0 ? (ev.pages as PseoPage[]) : genPages;
+            break outer;
+          } else if (ev.type === 'error') {
+            throw Object.assign(new Error(ev.message as string), { step: 'generate' });
+          }
+        }
+      }
+
+      if (!slug || genPages.length === 0 || !genTheme) {
+        throw Object.assign(new Error('AI 생성 데이터가 불완전합니다. 재시도해주세요.'), { step: 'generate' });
+      }
+      setStep('generate', 'done', `${genTheme.mood} 테마 · ${genPages.length}페이지`);
 
       // [2] 페이지 빌드 & SEO 검증
       setStep('build', 'running');
       const buildResult = await apiPost<{
         files: Record<string, string>;
+        slug: string;
         siteUrl: string;
         sitemapUrl: string;
-      }>('/api/build', { slug, pages: genResult.pages, theme: genResult.theme });
+      }>('/api/build', { slug, pages: genPages, theme: genTheme });
+      slug = buildResult.slug; // 중복 시 suffix 붙은 slug로 업데이트
       siteUrl = buildResult.siteUrl;
       sitemapUrl = buildResult.sitemapUrl;
       setStep('build', 'done', `${Object.keys(buildResult.files).length}개 파일 생성`);
 
-      // [3] GitHub 커밋 (빠른 반환 — Vercel 폴링 제외)
+      // [3] GitHub 커밋
       setStep('github', 'running');
       const deployResult = await apiPost<{ commitSha: string; projectId: string }>(
         '/api/deploy',
@@ -204,7 +259,7 @@ export default function Home() {
       setStep('github', 'done', deployResult.commitSha.slice(0, 8));
       projectId = deployResult.projectId;
 
-      // [4] Vercel 배포 대기 — 클라이언트에서 12회 폴링 (10초 간격, 최대 120초)
+      // [4] Vercel 배포 대기 — 클라이언트 폴링 (10초 × 12회)
       setStep('vercel', 'running');
       let deployUrl = '';
       for (let i = 0; i < 12; i++) {
@@ -214,10 +269,7 @@ export default function Home() {
             '/api/poll-deploy',
             { commitSha: deployResult.commitSha, projectId }
           );
-          if (poll.state === 'READY' && poll.deployUrl) {
-            deployUrl = poll.deployUrl;
-            break;
-          }
+          if (poll.state === 'READY' && poll.deployUrl) { deployUrl = poll.deployUrl; break; }
           if (poll.state === 'ERROR' || poll.state === 'CANCELED') {
             throw new Error(`Vercel 배포 실패 (${poll.state})`);
           }
@@ -233,35 +285,31 @@ export default function Home() {
       await apiPost('/api/domain', { slug, projectId });
       setStep('domain', 'done', `${slug}.${BASE_DOMAIN}`);
 
-      // [6] 서치콘솔 등록 (키 없으면 skip)
-      setStep('index', 'running');
-      const pageUrls = (genResult.pages as Array<{ slug: string }>).map(
-        (p) => `https://${slug}.${BASE_DOMAIN}/${p.slug}`
-      );
-      const indexResult = await apiPost<{
-        google: { ok: boolean; skipped: boolean };
-        googleIndexing: { ok: boolean; skipped: boolean; submittedUrls?: number };
-        naver: { ok: boolean; skipped: boolean };
-      }>('/api/index', { slug, siteUrl, sitemapUrl, pageUrls });
-
-      const indexDetail = [
-        `구글: ${indexResult.google.skipped ? 'skip' : indexResult.google.ok ? '✅' : '❌'}`,
-        `인덱싱API: ${indexResult.googleIndexing.skipped ? 'skip' : indexResult.googleIndexing.ok ? `✅(${indexResult.googleIndexing.submittedUrls ?? 0})` : '❌'}`,
-        `네이버: ${indexResult.naver.skipped ? 'skip' : indexResult.naver.ok ? '✅' : '❌'}`,
-      ].join(' · ');
-      setStep('index', 'done', indexDetail);
-
-      // 인덱싱 로그 클라이언트 저장
-      const isOk = indexResult.google.ok || indexResult.googleIndexing.ok || indexResult.naver.ok;
-      const allSkipped = indexResult.google.skipped && indexResult.googleIndexing.skipped && indexResult.naver.skipped;
-      updateIndexLog(
-        { slug, url: `https://${slug}.${BASE_DOMAIN}`, timestamp: Date.now() },
-        isOk || allSkipped
-      );
-
+      // 배포 완료 — 즉시 URL 표시
       const url = `https://${slug}.${BASE_DOMAIN}`;
       setFinalUrl(url);
       saveHistory({ topic: topic.trim(), slug, url, createdAt: Date.now() });
+
+      // [6] 서치콘솔 등록 — 백그라운드 fire-and-forget
+      setStep('index', 'running', '백그라운드 처리 중...');
+      const pageUrls = genPages.map((p) => `https://${slug}.${BASE_DOMAIN}/${p.slug}`);
+      void apiPost<{
+        google: { ok: boolean; skipped: boolean };
+        googleIndexing: { ok: boolean; skipped: boolean; submittedUrls?: number };
+        naver: { ok: boolean; skipped: boolean };
+      }>('/api/postprocess', { slug, siteUrl, sitemapUrl, pageUrls }, 30_000)
+        .then((r) => {
+          const detail = [
+            `구글: ${r.google.skipped ? 'skip' : r.google.ok ? '✅' : '❌'}`,
+            `인덱싱API: ${r.googleIndexing.skipped ? 'skip' : r.googleIndexing.ok ? `✅(${r.googleIndexing.submittedUrls ?? 0})` : '❌'}`,
+            `네이버: ${r.naver.skipped ? 'skip' : r.naver.ok ? '✅' : '❌'}`,
+          ].join(' · ');
+          setStep('index', 'done', detail);
+          const isOk = r.google.ok || r.googleIndexing.ok || r.naver.ok;
+          const allSkip = r.google.skipped && r.googleIndexing.skipped && r.naver.skipped;
+          updateIndexLog({ slug, url, timestamp: Date.now() }, isOk || allSkip);
+        })
+        .catch(() => setStep('index', 'skipped', '등록 실패 (재시도 가능)'));
 
     } catch (err) {
       const error = err as Error & { step?: string };

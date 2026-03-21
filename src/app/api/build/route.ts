@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
+import path from 'path';
 import type { PseoPage, SiteTheme } from '@/types/pseo';
 import { buildSiteFiles } from '@/lib/builder';
 
@@ -12,7 +14,7 @@ export async function POST(req: NextRequest) {
       theme?: unknown;
     };
 
-    const slug = typeof body.slug === 'string' ? body.slug : '';
+    let slug = typeof body.slug === 'string' ? body.slug : '';
     if (!slug) {
       return NextResponse.json(
         { error: 'slug가 필요합니다.', step: 'build' },
@@ -32,6 +34,12 @@ export async function POST(req: NextRequest) {
         { error: 'theme 객체가 필요합니다.', step: 'build' },
         { status: 400 }
       );
+    }
+
+    // 슬러그 중복 방지 — suffix 추가
+    const sitePath = path.join(process.cwd(), 'public', 'sites', `${slug}.json`);
+    if (fs.existsSync(sitePath)) {
+      slug = `${slug}-${Date.now().toString(36).slice(-4)}`;
     }
 
     const pages = body.pages as PseoPage[];

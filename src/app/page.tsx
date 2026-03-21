@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Loader2, CheckCircle2, XCircle, Circle, ExternalLink, History, Trash2 } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Circle, ExternalLink, History, Trash2, PlusCircle } from 'lucide-react';
 import type { PseoPage, SiteTheme } from '@/types/pseo';
 
 type StepStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped';
@@ -79,6 +79,8 @@ export default function Home() {
   const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
+  const [extendingSlug, setExtendingSlug] = useState<string | null>(null);
+  const [extendProgress, setExtendProgress] = useState<Record<string, string>>({});
 
   useEffect(() => {
     try {
@@ -179,6 +181,70 @@ export default function Home() {
     } finally {
       setDeletingSlug(null);
       setConfirmDelete(null);
+    }
+  }
+
+  async function extendSite(slug: string) {
+    if (extendingSlug) return;
+    setExtendingSlug(slug);
+    setExtendProgress((prev) => ({ ...prev, [slug]: '추가 페이지 생성 준비 중...' }));
+
+    try {
+      const res = await fetch('/api/extend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug }),
+        signal: AbortSignal.timeout(180_000),
+      });
+
+      if (!res.body) throw new Error('스트림 응답 없음');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let sseBuf = '';
+
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        sseBuf += decoder.decode(value, { stream: true });
+        const lines = sseBuf.split('\n');
+        sseBuf = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (line.startsWith(':')) continue;
+          if (!line.startsWith('data: ')) continue;
+          let ev: { type: string; [k: string]: unknown };
+          try { ev = JSON.parse(line.slice(6)) as { type: string; [k: string]: unknown }; } catch { continue; }
+
+          if (ev.type === 'status') {
+            setExtendProgress((prev) => ({ ...prev, [slug]: ev.message as string }));
+          } else if (ev.type === 'page') {
+            const title = ev.title as string;
+            setExtendProgress((prev) => ({ ...prev, [slug]: `페이지 추가됨: ${title.slice(0, 20)}` }));
+          } else if (ev.type === 'done') {
+            const added = ev.addedCount as number;
+            const total = ev.totalPages as number;
+            const newPages = (ev.newPages as Array<{ slug: string; title: string; description: string }>) ?? [];
+            setExtendProgress((prev) => ({ ...prev, [slug]: `완료: ${added}개 추가 (총 ${total}페이지)` }));
+            // 사이트 카드 로컬 업데이트
+            setSites((prev) =>
+              prev.map((s) =>
+                s.slug === slug
+                  ? { ...s, pages: [...s.pages, ...newPages] }
+                  : s
+              )
+            );
+            break outer;
+          } else if (ev.type === 'error') {
+            throw new Error(ev.message as string);
+          }
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '추가 작성 실패';
+      setExtendProgress((prev) => ({ ...prev, [slug]: `오류: ${msg}` }));
+    } finally {
+      setExtendingSlug(null);
     }
   }
 
@@ -553,6 +619,8 @@ export default function Home() {
                 const isExpanded = expandedSlug === site.slug;
                 const isConfirming = confirmDelete === site.slug;
                 const isDeleting = deletingSlug === site.slug;
+                const isExtending = extendingSlug === site.slug;
+                const extendMsg = extendProgress[site.slug];
 
                 return (
                   <div key={site.slug} className="rounded-xl overflow-hidden border border-slate-700 bg-slate-900/50">
@@ -630,6 +698,14 @@ export default function Home() {
                         </div>
                       )}
 
+                      {/* 추가 작성 진행 상황 */}
+                      {extendMsg && (
+                        <p className={`text-xs mb-2 px-2 py-1.5 rounded-lg ${extendMsg.startsWith('오류') ? 'bg-red-900/30 text-red-400' : 'bg-blue-900/20 text-blue-300'}`}>
+                          {isExtending && <Loader2 className="w-3 h-3 animate-spin inline mr-1" />}
+                          {extendMsg}
+                        </p>
+                      )}
+
                       {/* 액션 버튼 */}
                       <div className="flex items-center gap-2">
                         <a
@@ -641,6 +717,19 @@ export default function Home() {
                           <ExternalLink className="w-3 h-3" />
                           방문
                         </a>
+
+                        <button
+                          onClick={() => void extendSite(site.slug)}
+                          disabled={!!extendingSlug || isDeleting}
+                          className="flex-1 text-xs py-1.5 rounded-lg border border-slate-600 text-slate-400 hover:border-indigo-500 hover:text-indigo-400 transition-colors flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isExtending ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <PlusCircle className="w-3 h-3" />
+                          )}
+                          추가 작성
+                        </button>
 
                         {!isConfirming ? (
                           <button

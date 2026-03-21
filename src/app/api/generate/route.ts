@@ -7,10 +7,20 @@ export const dynamic = 'force-dynamic';
 
 const MODEL = 'claude-sonnet-4-20250514';
 
-function buildPrompt(topic: string, requirements?: string): string {
-  return `주제: ${topic}${requirements ? `\n추가 요구사항: ${requirements}` : ''}
+// 5개 페이지의 검색 의도 — 각 페이지 개별 생성에 사용
+const PAGE_INTENTS = [
+  'TOP5 핵심 명소 총정리 (가장 유명하고 반드시 가야 할 곳)',
+  '가족·어린이와 함께 즐기기 (아이 동반 가족 여행)',
+  '데이트·로맨틱 코스 (연인과 함께)',
+  '사진·인증샷 명소 (포토존 · SNS 감성)',
+  '교통·주차·접근성 실전 가이드 (대중교통·주차 정보)',
+];
 
-아래 JSON 구조를 생성하세요. 정확히 5개 페이지, 각 섹션 2개:
+function buildHeaderPrompt(topic: string, year: number): string {
+  return `주제: ${topic}
+현재 연도: ${year}
+
+아래 JSON을 생성하세요. 사이트 slug와 테마만:
 {
   "slug": "english-kebab-slug",
   "theme": {
@@ -20,206 +30,143 @@ function buildPrompt(topic: string, requirements?: string): string {
     "gradientDirection": "135deg",
     "mood": "cheerful|natural|calm|energetic",
     "fontPair": { "heading": "Noto Serif KR", "body": "Noto Sans KR" }
-  },
-  "pages": [
-    {
-      "slug": "page-slug",
-      "title": "SEO 제목 (60자 이내)",
-      "description": "메타 설명 (160자 이내)",
-      "keywords": ["키워드1","키워드2","키워드3"],
-      "content": {
-        "hero": "히어로 문구 2문장 (150자 이상)",
-        "sections": [
-          {"heading": "TOP 추천 제목", "body": "400자 이상 상세 큐레이션. 추천 이유·특징·구체적 정보 포함."},
-          {"heading": "상황별 가이드 제목", "body": "400자 이상 상세 설명. 팁·주의사항·비교 포함."}
-        ],
-        "faq": [
-          {"q": "자주 묻는 질문1", "a": "100자 이상 상세 답변1"},
-          {"q": "자주 묻는 질문2", "a": "100자 이상 상세 답변2"}
-        ]
-      }
-    }
-  ]
+  }
 }
 
 규칙:
 - slug: 영문 소문자·하이픈만 (예: seoul-cherry-blossom-top5)
-- 페이지 정확히 5개, 각각 다른 검색 의도 (비용/가족/초보/시즌/지역 등)
-- sections[].body: 반드시 400자 이상, 풍부한 큐레이션/비교/추천
-- 콘텐츠 모두 한국어 (slug·JSON키 제외)
-- title·description 필수, 비워두기 금지
+- 테마: 주제 분위기에 맞는 색상
 - JSON만 출력, 마크다운 없이`;
 }
 
-/** JSON 스트림에서 pages 배열의 각 객체를 실시간으로 추출 */
-class PageExtractor {
-  private buf = '';
-  private inStr = false;
-  private esc = false;
-  private depth = 0;
-  private pagesStarted = false;
-  private pageStart = -1;
-  private slug = '';
-  private theme: SiteTheme | null = null;
-  private headerEmitted = false;
-  private completedPages: PseoPage[] = [];
+function buildPagePrompt(
+  topic: string,
+  siteSlug: string,
+  intent: string,
+  year: number
+): string {
+  return `주제: ${topic}
+현재 연도: ${year}
+검색 의도: ${intent}
 
-  feed(text: string): { newPages: PseoPage[]; headerReady: boolean } {
-    const newPages: PseoPage[] = [];
-
-    for (const c of text) {
-      const pos = this.buf.length;
-      this.buf += c;
-
-      if (this.esc) { this.esc = false; continue; }
-      if (c === '\\' && this.inStr) { this.esc = true; continue; }
-      if (c === '"') { this.inStr = !this.inStr; continue; }
-      if (this.inStr) continue;
-
-      if (c === '{') {
-        this.depth++;
-        if (this.pagesStarted && this.depth === 2 && this.pageStart === -1) {
-          this.pageStart = pos;
-        }
-      } else if (c === '}') {
-        if (this.pagesStarted && this.depth === 2 && this.pageStart !== -1) {
-          const pageStr = this.buf.slice(this.pageStart);
-          try {
-            const page = JSON.parse(pageStr) as PseoPage;
-            this.completedPages.push(page);
-            newPages.push(page);
-          } catch { /* incomplete */ }
-          this.pageStart = -1;
-        }
-        this.depth--;
-      } else if (c === '[' && !this.pagesStarted) {
-        // "pages": [ 패턴 감지 (공백 허용)
-        const before = this.buf.slice(0, -1).trimEnd();
-        if (before.endsWith('"pages":')) {
-          this.pagesStarted = true;
-          this.parseHeader();
-        }
-      }
-    }
-
-    const headerReady = !this.headerEmitted && this.slug !== '' && this.theme !== null;
-    if (headerReady) this.headerEmitted = true;
-    return { newPages, headerReady };
+아래 JSON을 생성하세요. 페이지 1개:
+{
+  "slug": "page-slug",
+  "title": "SEO 제목 (60자 이내, ${year}년 정보 포함)",
+  "description": "메타 설명 (160자 이내)",
+  "keywords": ["키워드1","키워드2","키워드3"],
+  "content": {
+    "hero": "히어로 문구 2문장 (150자 이상)",
+    "sections": [
+      {"heading": "소제목1", "body": "400자 이상 상세 큐레이션. 추천 이유·특징·구체적 정보 포함."},
+      {"heading": "소제목2", "body": "400자 이상 상세 설명. 팁·주의사항·비교 포함."}
+    ],
+    "faq": [
+      {"q": "자주 묻는 질문1", "a": "100자 이상 상세 답변1"},
+      {"q": "자주 묻는 질문2", "a": "100자 이상 상세 답변2"}
+    ]
   }
+}
 
-  private parseHeader(): void {
-    const pagesIdx = this.buf.lastIndexOf('"pages"');
-    if (pagesIdx === -1) return;
-    const headerPart = this.buf.slice(0, pagesIdx).trimEnd().replace(/,\s*$/, '') + '}';
-    try {
-      const h = JSON.parse(headerPart) as { slug?: string; theme?: SiteTheme };
-      this.slug = h.slug ?? '';
-      this.theme = h.theme ?? null;
-    } catch {
-      const m = /"slug"\s*:\s*"([^"]+)"/.exec(this.buf);
-      if (m) this.slug = m[1];
-    }
-  }
+규칙:
+- slug: 영문 소문자·하이픈만, 사이트 slug "${siteSlug}"와 달라야 함
+- ${year}년 최신 정보 기준 (과거 연도 절대 사용 금지)
+- 검색 의도 "${intent}"에 맞게 작성
+- sections[].body: 400자 이상 풍부하게
+- 콘텐츠 모두 한국어 (slug·JSON키 제외)
+- JSON만 출력, 마크다운 없이`;
+}
 
-  getSlug(): string { return this.slug; }
-  getTheme(): SiteTheme | null { return this.theme; }
-  getPages(): PseoPage[] { return this.completedPages; }
-  getRawBuf(): string { return this.buf; }
+async function callClaude(client: Anthropic, prompt: string): Promise<string> {
+  const msg = await client.messages.create({
+    model: MODEL,
+    max_tokens: 4096,
+    system: 'JSON만 반환. 마크다운 코드블록 없이 순수 JSON만 출력.',
+    messages: [{ role: 'user', content: prompt }],
+  });
+  if (msg.stop_reason === 'max_tokens') throw new Error('토큰 한도 도달');
+  return msg.content[0]?.type === 'text' ? msg.content[0].text : '';
+}
+
+function parseJson<T>(text: string): T | null {
+  try {
+    const cleaned = text
+      .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+    return JSON.parse(cleaned) as T;
+  } catch { return null; }
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return sseError('ANTHROPIC_API_KEY 환경변수 없음');
-  }
+  if (!apiKey) return sseError('ANTHROPIC_API_KEY 환경변수 없음');
 
   let topic = '';
-  let requirements: string | undefined;
   try {
-    const body = (await req.json()) as { topic?: unknown; requirements?: unknown };
+    const body = (await req.json()) as { topic?: unknown };
     topic = typeof body.topic === 'string' ? body.topic.trim() : '';
-    requirements = typeof body.requirements === 'string' && body.requirements.trim()
-      ? body.requirements.trim()
-      : undefined;
   } catch {
     return sseError('요청 파싱 실패');
   }
-
   if (!topic) return sseError('주제(topic)가 필요합니다.');
 
   const client = new Anthropic({ apiKey });
   const encoder = new TextEncoder();
+  const year = new Date().getFullYear();
 
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
       const emit = (data: object) => {
-        try {
-          controller.enqueue(encoder.encode('data: ' + JSON.stringify(data) + '\n\n'));
-        } catch { /* already closed */ }
+        try { controller.enqueue(encoder.encode('data: ' + JSON.stringify(data) + '\n\n')); }
+        catch { /* already closed */ }
       };
 
-      // 15초마다 keepalive ping (프록시 타임아웃 방지)
       const pingTimer = setInterval(() => {
         try { controller.enqueue(encoder.encode(': ping\n\n')); } catch { /* ignore */ }
       }, 15_000);
 
-      const extractor = new PageExtractor();
-      let pageIndex = 0;
-
       try {
-        const anthropicStream = client.messages.stream({
-          model: MODEL,
-          max_tokens: 6000,
-          system: 'JSON만 반환. 마크다운 코드블록 없이 순수 JSON만 출력.',
-          messages: [{ role: 'user', content: buildPrompt(topic, requirements) }],
-        });
+        // [1] slug + theme 생성 (빠른 소형 요청)
+        emit({ type: 'status', message: '테마 분석 중...' });
+        const headerText = await callClaude(client, buildHeaderPrompt(topic, year));
+        const header = parseJson<{ slug: string; theme: SiteTheme }>(headerText);
 
-        anthropicStream.on('text', (text: string) => {
-          const { newPages, headerReady } = extractor.feed(text);
+        if (!header?.slug || !header?.theme) {
+          emit({ type: 'error', message: 'slug/theme 생성 실패. 재시도해주세요.' });
+          return;
+        }
 
-          if (headerReady) {
-            emit({ type: 'slug', slug: extractor.getSlug() });
-            const theme = extractor.getTheme();
-            if (theme) emit({ type: 'theme', theme });
-          }
+        emit({ type: 'slug', slug: header.slug });
+        emit({ type: 'theme', theme: header.theme });
 
-          for (const page of newPages) {
-            emit({ type: 'page', index: pageIndex, title: page.title ?? '', page });
-            pageIndex++;
-          }
-        });
+        // [2] 5개 페이지 병렬 생성 — 각 페이지 max_tokens: 4096, 실패 시 skip
+        const allPages: (PseoPage | null)[] = new Array(PAGE_INTENTS.length).fill(null) as null[];
 
-        const finalMsg = await anthropicStream.finalMessage();
-
-        if (finalMsg.stop_reason === 'max_tokens') {
-          emit({ type: 'error', message: '토큰 한도 도달 - 재시도해주세요.' });
-        } else {
-          let pages = extractor.getPages();
-          let slug = extractor.getSlug();
-          let theme = extractor.getTheme();
-
-          // 폴백: 스트림 파싱 실패 시 전체 버퍼로 재파싱
-          if (pages.length === 0) {
-            const rawText = finalMsg.content[0]?.type === 'text' ? finalMsg.content[0].text : '';
+        await Promise.all(
+          PAGE_INTENTS.map(async (intent, i) => {
             try {
-              const cleaned = rawText
-                .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
-              const parsed = JSON.parse(cleaned) as { slug?: string; theme?: SiteTheme; pages?: PseoPage[] };
-              pages = parsed.pages ?? [];
-              slug = parsed.slug ?? slug;
-              theme = parsed.theme ?? theme;
-            } catch { /* ignore */ }
-          }
+              const intentLabel = intent.split('(')[0].trim();
+              emit({ type: 'status', message: `페이지 ${i + 1}/5 생성 중... (${intentLabel})` });
+              const text = await callClaude(
+                client,
+                buildPagePrompt(topic, header.slug, intent, year)
+              );
+              const page = parseJson<PseoPage>(text);
+              if (page) {
+                allPages[i] = page;
+                emit({ type: 'page', index: i, title: page.title ?? '', page });
+              }
+            } catch { /* 해당 페이지만 skip */ }
+          })
+        );
 
-          if (pages.length === 0) {
-            emit({ type: 'error', message: 'AI 응답 파싱 실패. 재시도해주세요.' });
-          } else {
-            emit({ type: 'done', slug, theme, pages });
-          }
+        const pages = allPages.filter((p): p is PseoPage => p !== null);
+        if (pages.length === 0) {
+          emit({ type: 'error', message: '모든 페이지 생성 실패. 재시도해주세요.' });
+        } else {
+          emit({ type: 'done', slug: header.slug, theme: header.theme, pages });
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : '알 수 없는 오류';
-        emit({ type: 'error', message });
+        emit({ type: 'error', message: err instanceof Error ? err.message : '알 수 없는 오류' });
       } finally {
         clearInterval(pingTimer);
         try { controller.close(); } catch { /* already closed */ }

@@ -83,6 +83,20 @@ Claude API로 데이터 생성 → Next.js Dynamic Routes 페이지 빌드 → V
     - 각 항목마다 '추천 이유' 필수 포함.
     - 페이지마다 검색 의도(intent)가 달라야 함 (비용/가족/초보/시즌/지역 등).
 
+11. **페이지별 개별 Claude 호출** — `app/api/generate/route.ts`, `app/api/extend/route.ts`
+    - 헤더(slug+theme) 1회 + 각 페이지 개별 호출. 모든 호출 max_tokens: 4096.
+    - 단일 호출에서 여러 페이지 생성 금지. 토큰 한도 및 Vercel 60초 제한 준수.
+
+12. **연도 자동 반영** — `app/api/generate/route.ts`, `app/api/extend/route.ts`
+    - 모든 Claude 프롬프트에 `new Date().getFullYear()` 로 구한 연도를 주입.
+    - 연도를 코드에 하드코딩하는 것을 절대 금지.
+
+13. **추가 작성 기능** — `app/api/extend/route.ts`
+    - 기존 사이트에 새 검색 의도 3페이지 추가. SSE 스트리밍으로 실시간 진행 표시.
+    - 페이지 생성은 반드시 순차적으로 (병렬 생성 절대 금지).
+    - 기존 slug와 중복되지 않는 slug 강제 (프롬프트에 기존 slug 목록 전달).
+    - 생성 완료 후 `buildSiteFiles()`로 site JSON + sitemap 재생성 후 GitHub 단일 커밋.
+
 ## 🆕 추가 기능
 
 ### JSON-LD 구조화 데이터

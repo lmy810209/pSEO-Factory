@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import type { PseoPage, SiteTheme } from '@/types/pseo';
-import { buildSiteFiles } from '@/lib/builder';
+import { buildSiteFiles, type SiteMeta } from '@/lib/builder';
 
 export const maxDuration = 30;
 
@@ -12,6 +12,11 @@ export async function POST(req: NextRequest) {
       slug?: unknown;
       pages?: unknown;
       theme?: unknown;
+      topic?: unknown;
+      title?: unknown;
+      description?: unknown;
+      heroHeadline?: unknown;
+      heroSubheadline?: unknown;
     };
 
     let slug = typeof body.slug === 'string' ? body.slug : '';
@@ -46,7 +51,15 @@ export async function POST(req: NextRequest) {
     const theme = body.theme as SiteTheme;
     const baseDomain = process.env.BASE_DOMAIN ?? 'linoranex.com';
 
-    const { files, sitemapUrl, siteUrl } = buildSiteFiles(slug, pages, theme, baseDomain);
+    const meta: SiteMeta = {
+      topic: typeof body.topic === 'string' ? body.topic : undefined,
+      title: typeof body.title === 'string' ? body.title : undefined,
+      description: typeof body.description === 'string' ? body.description : undefined,
+      heroHeadline: typeof body.heroHeadline === 'string' ? body.heroHeadline : undefined,
+      heroSubheadline: typeof body.heroSubheadline === 'string' ? body.heroSubheadline : undefined,
+    };
+
+    const { files, sitemapUrl, siteUrl } = buildSiteFiles(slug, pages, theme, baseDomain, meta);
 
     return NextResponse.json({ files, slug, sitemapUrl, siteUrl });
   } catch (error) {

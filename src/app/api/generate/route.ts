@@ -16,13 +16,32 @@ const PAGE_INTENTS = [
   '교통·주차·접근성 실전 가이드 (대중교통·주차 정보)',
 ];
 
+interface SiteHeader {
+  slug: string;
+  title: string;
+  description: string;
+  heroHeadline: string;
+  heroSubheadline: string;
+  theme: SiteTheme;
+}
+
+/** 현재 연도보다 이전 연도 포함 여부 검사 */
+function containsPastYear(text: string, currentYear: number): boolean {
+  const found = text.match(/\b(20\d{2})\b/g);
+  return found ? found.some((y) => parseInt(y) < currentYear) : false;
+}
+
 function buildHeaderPrompt(topic: string, year: number): string {
   return `주제: ${topic}
 현재 연도: ${year}
 
-아래 JSON을 생성하세요. 사이트 slug와 테마만:
+아래 JSON을 생성하세요. 사이트 메타데이터와 테마:
 {
   "slug": "english-kebab-slug",
+  "title": "사이트 SEO 제목 (60자 이내, ${year}년 포함)",
+  "description": "사이트 메타 설명 (160자 이내, 주제 전체 요약)",
+  "heroHeadline": "홈페이지 메인 H1 (주제 그대로 또는 발전형, 30자 이내)",
+  "heroSubheadline": "홈페이지 부제목 (사이트 전체 소개 2문장, 100자 이상)",
   "theme": {
     "primaryColor": "#HEX",
     "secondaryColor": "#HEX",
@@ -35,6 +54,9 @@ function buildHeaderPrompt(topic: string, year: number): string {
 
 규칙:
 - slug: 영문 소문자·하이픈만 (예: seoul-cherry-blossom-top5)
+- title, heroHeadline, heroSubheadline: ${year}년 기준, ${year - 1}년 이하 과거 연도 절대 사용 금지
+- heroHeadline: 특정 글이 아닌 사이트 전체 주제를 대표하는 제목
+- heroSubheadline: 개별 글 내용 아님. 사이트 전체를 한눈에 소개
 - 테마: 주제 분위기에 맞는 색상
 - JSON만 출력, 마크다운 없이`;
 }
@@ -70,7 +92,7 @@ function buildPagePrompt(
 
 규칙:
 - slug: 영문 소문자·하이픈만, 사이트 slug "${siteSlug}"와 달라야 함
-- ${year}년 최신 정보 기준 (과거 연도 절대 사용 금지)
+- ${year}년 최신 정보 기준. ${year - 1}년 이하 과거 연도 절대 사용 금지
 - 검색 의도 "${intent}"에 맞게 작성
 - sections[].body: 400자 이상 풍부하게
 - 콘텐츠 모두 한국어 (slug·JSON키 제외)
@@ -94,6 +116,24 @@ function parseJson<T>(text: string): T | null {
       .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
     return JSON.parse(cleaned) as T;
   } catch { return null; }
+}
+
+/** 페이지 생성 — 과거 연도 감지 시 1회 재시도 */
+async function generatePage(
+  client: Anthropic,
+  topic: string,
+  siteSlug: string,
+  intent: string,
+  year: number
+): Promise<PseoPage | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const text = await callClaude(client, buildPagePrompt(topic, siteSlug, intent, year));
+    const page = parseJson<PseoPage>(text);
+    if (!page) continue;
+    if (containsPastYear(JSON.stringify(page), year)) continue; // retry
+    return page;
+  }
+  return null;
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -125,20 +165,33 @@ export async function POST(req: NextRequest): Promise<Response> {
       }, 15_000);
 
       try {
-        // [1] slug + theme 생성 (빠른 소형 요청)
-        emit({ type: 'status', message: '테마 분석 중...' });
+        // [1] 사이트 메타데이터 + 테마 생성
+        emit({ type: 'status', message: '테마 및 사이트 구조 분석 중...' });
         const headerText = await callClaude(client, buildHeaderPrompt(topic, year));
-        const header = parseJson<{ slug: string; theme: SiteTheme }>(headerText);
+        const header = parseJson<SiteHeader>(headerText);
 
-        if (!header?.slug || !header?.theme) {
-          emit({ type: 'error', message: 'slug/theme 생성 실패. 재시도해주세요.' });
+        if (!header?.slug || !header?.theme || !header?.heroHeadline) {
+          emit({ type: 'error', message: '사이트 메타데이터 생성 실패. 재시도해주세요.' });
           return;
         }
 
-        emit({ type: 'slug', slug: header.slug });
-        emit({ type: 'theme', theme: header.theme });
+        // 헤더 과거 연도 검증
+        if (containsPastYear(JSON.stringify(header), year)) {
+          emit({ type: 'error', message: `생성된 메타데이터에 과거 연도가 포함되었습니다. 재시도해주세요.` });
+          return;
+        }
 
-        // [2] 5개 페이지 병렬 생성 — 각 페이지 max_tokens: 4096, 실패 시 skip
+        emit({
+          type: 'header',
+          slug: header.slug,
+          title: header.title,
+          description: header.description,
+          heroHeadline: header.heroHeadline,
+          heroSubheadline: header.heroSubheadline,
+          theme: header.theme,
+        });
+
+        // [2] 5개 페이지 병렬 생성 — 각 max_tokens: 4096, 실패/과거연도 시 skip
         const allPages: (PseoPage | null)[] = new Array(PAGE_INTENTS.length).fill(null) as null[];
 
         await Promise.all(
@@ -146,11 +199,7 @@ export async function POST(req: NextRequest): Promise<Response> {
             try {
               const intentLabel = intent.split('(')[0].trim();
               emit({ type: 'status', message: `페이지 ${i + 1}/5 생성 중... (${intentLabel})` });
-              const text = await callClaude(
-                client,
-                buildPagePrompt(topic, header.slug, intent, year)
-              );
-              const page = parseJson<PseoPage>(text);
+              const page = await generatePage(client, topic, header.slug, intent, year);
               if (page) {
                 allPages[i] = page;
                 emit({ type: 'page', index: i, title: page.title ?? '', page });
@@ -163,7 +212,16 @@ export async function POST(req: NextRequest): Promise<Response> {
         if (pages.length === 0) {
           emit({ type: 'error', message: '모든 페이지 생성 실패. 재시도해주세요.' });
         } else {
-          emit({ type: 'done', slug: header.slug, theme: header.theme, pages });
+          emit({
+            type: 'done',
+            slug: header.slug,
+            title: header.title,
+            description: header.description,
+            heroHeadline: header.heroHeadline,
+            heroSubheadline: header.heroSubheadline,
+            theme: header.theme,
+            pages,
+          });
         }
       } catch (err) {
         emit({ type: 'error', message: err instanceof Error ? err.message : '알 수 없는 오류' });

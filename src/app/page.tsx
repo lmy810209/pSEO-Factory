@@ -298,6 +298,10 @@ export default function Home() {
     let sitemapUrl = '';
     let genPages: PseoPage[] = [];
     let genTheme: SiteTheme | null = null;
+    let genTitle = '';
+    let genDescription = '';
+    let genHeroHeadline = '';
+    let genHeroSubheadline = '';
 
     try {
       // [1] AI 콘텐츠 & 테마 생성 — SSE 스트리밍
@@ -338,8 +342,13 @@ export default function Home() {
           let ev: { type: string; [k: string]: unknown };
           try { ev = JSON.parse(line.slice(6)) as { type: string; [k: string]: unknown }; } catch { continue; }
 
-          if (ev.type === 'theme') {
+          if (ev.type === 'header') {
+            slug = (ev.slug as string) || slug;
             genTheme = ev.theme as SiteTheme;
+            genTitle = (ev.title as string) ?? '';
+            genDescription = (ev.description as string) ?? '';
+            genHeroHeadline = (ev.heroHeadline as string) ?? '';
+            genHeroSubheadline = (ev.heroSubheadline as string) ?? '';
             setThemeInfo(`${genTheme.mood} · ${genTheme.primaryColor} · ${genTheme.fontPair.heading}`);
           } else if (ev.type === 'page') {
             const page = ev.page as PseoPage;
@@ -349,6 +358,10 @@ export default function Home() {
           } else if (ev.type === 'done') {
             slug = (ev.slug as string) || slug;
             genTheme = (ev.theme as SiteTheme) ?? genTheme;
+            genTitle = (ev.title as string) || genTitle;
+            genDescription = (ev.description as string) || genDescription;
+            genHeroHeadline = (ev.heroHeadline as string) || genHeroHeadline;
+            genHeroSubheadline = (ev.heroSubheadline as string) || genHeroSubheadline;
             genPages = (ev.pages as PseoPage[]).length > 0 ? (ev.pages as PseoPage[]) : genPages;
             break outer;
           } else if (ev.type === 'error') {
@@ -369,7 +382,16 @@ export default function Home() {
         slug: string;
         siteUrl: string;
         sitemapUrl: string;
-      }>('/api/build', { slug, pages: genPages, theme: genTheme });
+      }>('/api/build', {
+        slug,
+        pages: genPages,
+        theme: genTheme,
+        topic: topic.trim(),
+        title: genTitle,
+        description: genDescription,
+        heroHeadline: genHeroHeadline,
+        heroSubheadline: genHeroSubheadline,
+      });
       slug = buildResult.slug; // 중복 시 suffix 붙은 slug로 업데이트
       siteUrl = buildResult.siteUrl;
       sitemapUrl = buildResult.sitemapUrl;

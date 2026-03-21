@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
-import type { PseoPage, SiteTheme } from '@/types/pseo';
+import type { PseoPage, SiteTheme, SiteData } from '@/types/pseo';
+import type { SiteMeta } from '@/lib/builder';
 import { buildSiteFiles } from '@/lib/builder';
 import { commitFiles } from '@/lib/github';
 import { validateEnv } from '@/lib/env';
@@ -23,11 +24,10 @@ const EXTEND_INTENTS = [
   '시니어·어르신 동반 여행 (노약자 친화)',
 ];
 
-interface SiteData {
-  slug: string;
-  pages: PseoPage[];
-  theme: SiteTheme;
-  generatedAt: number;
+/** 현재 연도보다 이전 연도 포함 여부 검사 */
+function containsPastYear(text: string, currentYear: number): boolean {
+  const found = text.match(/\b(20\d{2})\b/g);
+  return found ? found.some((y) => parseInt(y) < currentYear) : false;
 }
 
 function buildPagePrompt(
@@ -159,11 +159,18 @@ export async function POST(req: NextRequest): Promise<Response> {
 
           try {
             const allSlugs = [...existingSlugs, ...newPages.map((p) => p.slug)];
-            const text = await callClaude(
-              client,
-              buildPagePrompt(topic, slug, intent, year, allSlugs)
-            );
-            const page = parseJson<PseoPage>(text);
+            let page: PseoPage | null = null;
+            for (let attempt = 0; attempt < 2; attempt++) {
+              const text = await callClaude(
+                client,
+                buildPagePrompt(topic, slug, intent, year, allSlugs)
+              );
+              const parsed = parseJson<PseoPage>(text);
+              if (!parsed) continue;
+              if (containsPastYear(JSON.stringify(parsed), year)) continue;
+              page = parsed;
+              break;
+            }
             if (page && page.slug && page.title) {
               newPages.push(page);
               emit({ type: 'page', index: i, title: page.title, page });
@@ -181,7 +188,14 @@ export async function POST(req: NextRequest): Promise<Response> {
         // 업데이트된 페이지 목록으로 사이트 파일 재생성
         emit({ type: 'status', message: 'GitHub에 커밋 중...' });
         const allPages = [...existingPages, ...newPages];
-        const { files } = buildSiteFiles(slug, allPages, siteData.theme, baseDomain);
+        const existingMeta: SiteMeta = {
+          topic: (siteData as SiteData).topic,
+          title: (siteData as SiteData).title,
+          description: (siteData as SiteData).description,
+          heroHeadline: (siteData as SiteData).heroHeadline,
+          heroSubheadline: (siteData as SiteData).heroSubheadline,
+        };
+        const { files } = buildSiteFiles(slug, allPages, siteData.theme, baseDomain, existingMeta);
 
         await commitFiles(files, `pSEO: ${slug} 추가 페이지 ${newPages.length}개 [자동 커밋]`);
 

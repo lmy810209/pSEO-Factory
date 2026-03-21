@@ -247,7 +247,7 @@ export default async function SubdomainSubPage({ params }: Props) {
                 {relatedPages.map((related) => (
                   <a
                     key={related.slug}
-                    href={related.slug === data.pages[0].slug ? '/' : `/${related.slug}`}
+                    href={`/${related.slug}`}
                     className="flex items-start gap-3 p-4 rounded-lg border hover:shadow-md transition-shadow bg-white"
                     style={{ borderColor: `${theme.primaryColor}20` }}
                   >
@@ -277,7 +277,7 @@ export default async function SubdomainSubPage({ params }: Props) {
               © {new Date().getFullYear()} Powered by pSEO Factory.
             </p>
             <p className="text-center text-xs text-gray-400 mb-3">
-              본 콘텐츠는 정보 제공 목적으로만 제공됩니다. 2026년 3월 기준 작성 내용으로 실제 상황과 다를 수 있습니다.
+              본 콘텐츠는 정보 제공 목적으로만 제공됩니다. {new Date().getFullYear()}년 기준 작성 내용으로 실제 상황과 다를 수 있습니다.
             </p>
             <div className="flex justify-center gap-4 text-xs" style={{ color: theme.primaryColor }}>
               <a href="/about" className="hover:underline">사이트 소개</a>

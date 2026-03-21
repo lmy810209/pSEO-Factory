@@ -96,6 +96,20 @@ Claude API로 데이터 생성 → Next.js Dynamic Routes 페이지 빌드 → V
     - 페이지 생성은 반드시 순차적으로 (병렬 생성 절대 금지).
     - 기존 slug와 중복되지 않는 slug 강제 (프롬프트에 기존 slug 목록 전달).
     - 생성 완료 후 `buildSiteFiles()`로 site JSON + sitemap 재생성 후 GitHub 단일 커밋.
+    - 추가 작성 시 기존 `topic`, `title`, `heroHeadline`, `heroSubheadline` 메타 유지 (덮어쓰지 않음).
+
+14. **사이트 허브 구조** — `app/s/[slug]/page.tsx`, `types/pseo.ts`
+    - `/s/[slug]` 는 개별 글이 아닌 사이트 전체 허브 페이지. `pages[0]` 본문을 홈 메인으로 사용 금지.
+    - 허브 H1은 `site.heroHeadline` (개별 글 제목과 반드시 분리).
+    - 허브 본문은 전체 주제 요약 + 상황별 카드 목록. 특정 장소/항목 단독 심층 설명 넣지 않음.
+    - `SiteData` 타입에 `topic`, `title`, `description`, `heroHeadline`, `heroSubheadline` 필드 저장.
+    - 기존 사이트(필드 없는 경우) 마이그레이션: `slug` → title-case fallback으로 자동 표시.
+    - 카드 정렬: 카테고리(TOP5 > 가족 > 데이트 > 사진 > 교통 > 혼행 > 야경 > 맛집 > 가성비 > 시니어) 기준.
+
+15. **과거 연도 자동 차단** — `app/api/generate/route.ts`, `app/api/extend/route.ts`
+    - 생성된 JSON(title, hero, sections, faq 포함)에 현재 연도 미만의 연도(`20XX < currentYear`) 발견 시 1회 자동 재시도.
+    - 2회 시도 후에도 과거 연도 포함이면 해당 페이지 skip. 빈 fallback 절대 금지.
+    - 헤더(slug+theme+meta) 생성 결과에 과거 연도 포함 시 전체 생성 즉시 중단 후 오류 반환.
 
 ## 🆕 추가 기능
 
@@ -186,6 +200,18 @@ API 키는 절대 코드에 하드코딩하지 않는다. `.env.local`에만 보
 
 ```typescript
 // types/pseo.ts
+
+interface SiteData {
+  slug: string;
+  topic?: string;           // 원본 입력 주제
+  title?: string;           // 사이트 SEO 제목 (허브 메타)
+  description?: string;     // 사이트 메타 설명
+  heroHeadline?: string;    // 허브 H1 — 사이트 주제 직접 반영
+  heroSubheadline?: string; // 허브 부제목 — 전체 사이트 소개
+  pages: PseoPage[];
+  theme: SiteTheme;
+  generatedAt: number;
+}
 
 interface PseoJob {
   id: string;

@@ -1,4 +1,6 @@
-import type { PseoPage, SiteTheme } from '@/types/pseo';
+import type { PseoPage, SiteTheme, SiteData } from '@/types/pseo';
+
+export type SiteMeta = Pick<SiteData, 'topic' | 'title' | 'description' | 'heroHeadline' | 'heroSubheadline'>;
 
 function validatePage(page: PseoPage, index: number): void {
   const check = (field: string, value: string | undefined) => {
@@ -49,7 +51,8 @@ export function buildSiteFiles(
   slug: string,
   pages: PseoPage[],
   theme: SiteTheme,
-  baseDomain: string
+  baseDomain: string,
+  meta?: SiteMeta
 ): BuildResult {
   // SEO 필수 메타태그 검증 — 하나라도 없으면 빌드 중단
   for (let i = 0; i < pages.length; i++) {
@@ -64,7 +67,7 @@ export function buildSiteFiles(
   const sitemapUrl = `${siteUrl}/sitemap.xml`;
 
   const siteJson = JSON.stringify(
-    { slug, pages, theme, generatedAt: Date.now() },
+    { slug, ...(meta ?? {}), pages, theme, generatedAt: Date.now() },
     null,
     2
   );

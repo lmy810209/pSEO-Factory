@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
+import path from 'path';
 import { deleteFiles } from '@/lib/github';
 
 export const maxDuration = 30;
@@ -19,6 +21,13 @@ export async function POST(req: NextRequest) {
     ];
 
     const commitSha = await deleteFiles(filePaths, `pSEO: ${slug} 사이트 삭제 [자동 커밋]`);
+
+    // 서버 로컬 파일도 즉시 삭제 (Vercel 재빌드 대기 없이 바로 반영)
+    for (const filePath of filePaths) {
+      const abs = path.join(process.cwd(), filePath);
+      if (fs.existsSync(abs)) fs.unlinkSync(abs);
+    }
+
     return NextResponse.json({ slug, commitSha });
   } catch (error) {
     const message = error instanceof Error ? error.message : '알 수 없는 오류';

@@ -134,3 +134,65 @@ export async function commitFiles(
 
   return newCommitData.sha;
 }
+
+/** GitHub에서 파일들을 삭제하는 커밋 생성 (sha: null → 트리에서 제거) */
+export async function deleteFiles(filePaths: string[], message: string): Promise<string> {
+  const { GITHUB_TOKEN, GITHUB_REPO } = validateEnv();
+  const [owner, repo] = GITHUB_REPO.split('/');
+
+  // 1. 현재 main 브랜치 ref
+  const refRes = await githubFetch(
+    `/repos/${owner}/${repo}/git/refs/heads/main`,
+    { method: 'GET' },
+    GITHUB_TOKEN
+  );
+  if (!refRes.ok) throw new Error(`브랜치 ref 조회 실패: ${refRes.status}`);
+  const refData = (await refRes.json()) as { object: { sha: string } };
+  const baseSha = refData.object.sha;
+
+  // 2. 커밋의 tree SHA
+  const commitRes = await githubFetch(
+    `/repos/${owner}/${repo}/git/commits/${baseSha}`,
+    { method: 'GET' },
+    GITHUB_TOKEN
+  );
+  if (!commitRes.ok) throw new Error(`커밋 조회 실패: ${commitRes.status}`);
+  const commitData = (await commitRes.json()) as { tree: { sha: string } };
+  const baseTreeSha = commitData.tree.sha;
+
+  // 3. sha: null로 삭제 트리 항목 생성
+  const deleteTree = filePaths.map((p) => ({
+    path: p,
+    mode: '100644' as const,
+    type: 'blob' as const,
+    sha: null,
+  }));
+
+  // 4. 새 tree (삭제 항목 포함)
+  const treeRes = await githubFetch(
+    `/repos/${owner}/${repo}/git/trees`,
+    { method: 'POST', body: JSON.stringify({ base_tree: baseTreeSha, tree: deleteTree }) },
+    GITHUB_TOKEN
+  );
+  if (!treeRes.ok) throw new Error(`tree 생성 실패: ${treeRes.status}`);
+  const treeData = (await treeRes.json()) as { sha: string };
+
+  // 5. 커밋 생성
+  const newCommitRes = await githubFetch(
+    `/repos/${owner}/${repo}/git/commits`,
+    { method: 'POST', body: JSON.stringify({ message, tree: treeData.sha, parents: [baseSha] }) },
+    GITHUB_TOKEN
+  );
+  if (!newCommitRes.ok) throw new Error(`커밋 생성 실패: ${newCommitRes.status}`);
+  const newCommitData = (await newCommitRes.json()) as { sha: string };
+
+  // 6. ref 업데이트
+  const updateRes = await githubFetch(
+    `/repos/${owner}/${repo}/git/refs/heads/main`,
+    { method: 'PATCH', body: JSON.stringify({ sha: newCommitData.sha, force: false }) },
+    GITHUB_TOKEN
+  );
+  if (!updateRes.ok) throw new Error(`ref 업데이트 실패: ${updateRes.status}`);
+
+  return newCommitData.sha;
+}

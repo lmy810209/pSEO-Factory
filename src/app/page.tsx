@@ -33,6 +33,18 @@ interface IndexLog {
   failed: IndexLogEntry[];
 }
 
+interface SiteInfo {
+  slug: string;
+  pages: Array<{ slug: string; title: string; description: string }>;
+  theme: {
+    primaryColor: string;
+    secondaryColor: string;
+    gradientDirection: string;
+    mood: string;
+  };
+  generatedAt: number;
+}
+
 const INITIAL_STEPS: Step[] = [
   { id: 'generate', label: 'AI 콘텐츠 & 테마 생성',    status: 'pending' },
   { id: 'build',    label: '페이지 빌드 & SEO 검증',    status: 'pending' },
@@ -62,6 +74,11 @@ export default function Home() {
   const [themeInfo, setThemeInfo] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [indexLog, setIndexLog] = useState<IndexLog>({ success: [], failed: [] });
+  const [sites, setSites] = useState<SiteInfo[]>([]);
+  const [sitesLoading, setSitesLoading] = useState(false);
+  const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -72,6 +89,8 @@ export default function Home() {
       const log = localStorage.getItem(INDEX_LOG_KEY);
       if (log) setIndexLog(JSON.parse(log) as IndexLog);
     } catch { /* ignore */ }
+    void fetchSites();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 현재 실행 중인 step을 ref로 추적 (클로저 버그 방지)
@@ -121,6 +140,46 @@ export default function Home() {
       localStorage.setItem(INDEX_LOG_KEY, JSON.stringify(next));
       return next;
     });
+  }
+
+  async function fetchSites() {
+    setSitesLoading(true);
+    try {
+      const res = await fetch('/api/sites');
+      if (!res.ok) return;
+      const data = (await res.json()) as { sites: SiteInfo[] };
+      setSites(data.sites ?? []);
+    } catch { /* ignore */ } finally {
+      setSitesLoading(false);
+    }
+  }
+
+  async function deleteSite(slug: string) {
+    setDeletingSlug(slug);
+    try {
+      const res = await fetch('/api/sites/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug }),
+        signal: AbortSignal.timeout(40_000),
+      });
+      if (!res.ok) {
+        const d = (await res.json()) as { error?: string };
+        throw new Error(d.error ?? '삭제 실패');
+      }
+      // 로컬 상태 즉시 제거
+      setSites((prev) => prev.filter((s) => s.slug !== slug));
+      setHistory((prev) => {
+        const next = prev.filter((h) => h.slug !== slug);
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+        return next;
+      });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '삭제 중 오류 발생');
+    } finally {
+      setDeletingSlug(null);
+      setConfirmDelete(null);
+    }
   }
 
   async function retryIndex(slug: string) {
@@ -451,6 +510,170 @@ export default function Home() {
             )}
           </div>
         )}
+
+        {/* 내 사이트 관리 */}
+        <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6 mb-6">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+              </svg>
+              내 사이트 관리
+            </h2>
+            <button
+              onClick={() => void fetchSites()}
+              disabled={sitesLoading}
+              className="text-xs text-slate-500 hover:text-slate-300 flex items-center gap-1 transition-colors"
+            >
+              {sitesLoading ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              )}
+              새로고침
+            </button>
+          </div>
+
+          {sitesLoading && sites.length === 0 ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-20 bg-slate-700/50 rounded-xl animate-pulse" />
+              ))}
+            </div>
+          ) : sites.length === 0 ? (
+            <p className="text-center text-slate-600 text-sm py-8">생성된 사이트가 없습니다</p>
+          ) : (
+            <div className="space-y-3">
+              {sites.map((site) => {
+                const topic = history.find((h) => h.slug === site.slug)?.topic;
+                const siteUrl = `https://${site.slug}.${BASE_DOMAIN}`;
+                const isExpanded = expandedSlug === site.slug;
+                const isConfirming = confirmDelete === site.slug;
+                const isDeleting = deletingSlug === site.slug;
+
+                return (
+                  <div key={site.slug} className="rounded-xl overflow-hidden border border-slate-700 bg-slate-900/50">
+                    {/* 테마 그라디언트 헤더 */}
+                    <div
+                      className="h-2"
+                      style={{
+                        background: `linear-gradient(${site.theme.gradientDirection}, ${site.theme.primaryColor}, ${site.theme.secondaryColor})`,
+                      }}
+                    />
+
+                    <div className="p-4">
+                      {/* 제목 행 */}
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-white truncate text-sm">
+                            {topic ?? site.slug}
+                          </p>
+                          <p className="text-xs text-slate-500 truncate">{site.slug}</p>
+                        </div>
+                        <span
+                          className="text-xs px-2 py-0.5 rounded-full shrink-0"
+                          style={{
+                            backgroundColor: `${site.theme.primaryColor}20`,
+                            color: site.theme.primaryColor,
+                          }}
+                        >
+                          {site.theme.mood}
+                        </span>
+                      </div>
+
+                      {/* 메타 정보 */}
+                      <div className="flex items-center gap-3 text-xs text-slate-500 mb-3">
+                        <span>{site.pages.length}페이지</span>
+                        <span>·</span>
+                        <span>{new Date(site.generatedAt).toLocaleDateString('ko-KR')}</span>
+                        <span>·</span>
+                        <span className="flex items-center gap-1 text-green-500">
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="4" />
+                          </svg>
+                          배포 완료
+                        </span>
+                      </div>
+
+                      {/* 페이지 목록 (펼치기) */}
+                      <button
+                        onClick={() => setExpandedSlug(isExpanded ? null : site.slug)}
+                        className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 mb-2 transition-colors"
+                      >
+                        <svg
+                          className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                        페이지 목록 {isExpanded ? '접기' : '보기'}
+                      </button>
+
+                      {isExpanded && (
+                        <div className="mb-3 space-y-1 pl-4 border-l-2" style={{ borderColor: site.theme.primaryColor + '40' }}>
+                          {site.pages.map((page, i) => (
+                            <div key={page.slug} className="flex items-center gap-2">
+                              <span className="text-xs text-slate-600">{i + 1}.</span>
+                              <a
+                                href={`${siteUrl}${page.slug === site.slug || page.slug === 'index' ? '' : '/' + page.slug}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-slate-300 hover:text-white truncate transition-colors"
+                              >
+                                {page.title}
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* 액션 버튼 */}
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={siteUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 text-center text-xs py-1.5 rounded-lg border border-slate-600 text-slate-300 hover:border-blue-500 hover:text-blue-400 transition-colors flex items-center justify-center gap-1"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          방문
+                        </a>
+
+                        {!isConfirming ? (
+                          <button
+                            onClick={() => setConfirmDelete(site.slug)}
+                            className="flex-1 text-xs py-1.5 rounded-lg border border-slate-600 text-slate-400 hover:border-red-500 hover:text-red-400 transition-colors flex items-center justify-center gap-1"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            삭제
+                          </button>
+                        ) : (
+                          <div className="flex-1 flex gap-1">
+                            <button
+                              onClick={() => void deleteSite(site.slug)}
+                              disabled={isDeleting}
+                              className="flex-1 text-xs py-1.5 rounded-lg bg-red-600/80 hover:bg-red-600 text-white transition-colors flex items-center justify-center gap-1 disabled:opacity-60"
+                            >
+                              {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : '확인'}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDelete(null)}
+                              className="flex-1 text-xs py-1.5 rounded-lg border border-slate-600 text-slate-400 hover:text-slate-200 transition-colors"
+                            >
+                              취소
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {/* History */}
         {history.length > 0 && (

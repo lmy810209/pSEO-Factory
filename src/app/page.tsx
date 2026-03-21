@@ -547,6 +547,7 @@ export default function Home() {
           ) : (
             <div className="space-y-3">
               {sites.map((site) => {
+                if (!site.theme) return null; // 구조 불일치 스킵
                 const topic = history.find((h) => h.slug === site.slug)?.topic;
                 const siteUrl = `https://${site.slug}.${BASE_DOMAIN}`;
                 const isExpanded = expandedSlug === site.slug;

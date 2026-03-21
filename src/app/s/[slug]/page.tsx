@@ -200,15 +200,7 @@ export default async function SubdomainPage({ params }: Props) {
                     key={page.slug}
                     href={`/${page.slug}`}
                     className="block p-5 bg-white rounded-xl border-2 transition-all hover:shadow-lg"
-                    style={{ borderColor: 'transparent' }}
-                    onMouseEnter={(e) =>
-                      ((e.currentTarget as HTMLAnchorElement).style.borderColor =
-                        theme.primaryColor)
-                    }
-                    onMouseLeave={(e) =>
-                      ((e.currentTarget as HTMLAnchorElement).style.borderColor =
-                        'transparent')
-                    }
+                    style={{ borderColor: theme.primaryColor }}
                   >
                     <h3 className="font-semibold text-gray-800 mb-1">{page.title}</h3>
                     <p className="text-sm text-gray-500 line-clamp-2">{page.description}</p>

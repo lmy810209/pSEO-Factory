@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://seoul-cherry-blossom-festival-top5-2026.linoranex.com/sitemap.xml

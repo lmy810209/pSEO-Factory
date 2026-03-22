@@ -25,4 +25,19 @@
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://seoul-cherry-blossom-festival-top5.linoranex.com/seoul-cherry-blossom-food-cafe-course-2026</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://seoul-cherry-blossom-festival-top5.linoranex.com/seoul-cherry-blossom-night-view-spots-2026</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://seoul-cherry-blossom-festival-top5.linoranex.com/seoul-cherry-blossom-senior-friendly-spots-2026</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
 </urlset>

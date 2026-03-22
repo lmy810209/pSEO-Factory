@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://jeju-spring-travel-course-2026.linoranex.com/sitemap.xml

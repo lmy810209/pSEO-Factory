@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://new-certification-2026.linoranex.com/sitemap.xml

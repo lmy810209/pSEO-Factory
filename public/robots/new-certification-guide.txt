@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://new-certification-guide.linoranex.com/sitemap.xml

@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://seoul-cherry-blossom-festival.linoranex.com/sitemap.xml

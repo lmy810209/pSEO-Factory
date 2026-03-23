@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://new-certification-career-strategy.linoranex.com/sitemap.xml
